@@ -1,11 +1,9 @@
 {
   "name": "bose-d365-native-host",
   "version": "1.11.2",
-  "description": "Dynamics Audio Companion — Native Messaging Host",
+  "description": "Dynamics Audio Companion - Native Messaging Host",
   "main": "host.js",
   "scripts": {
-    "bundle": "npx esbuild host.js --bundle --platform=node --outfile=host-bundle.js",
-    "build": "npm run bundle && node --experimental-sea-config sea-config.json && node -e \"require('fs').copyFileSync(process.execPath, 'dynamics-audio-companion.exe')\" && npx postject dynamics-audio-companion.exe NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,9 +12,5 @@
   "type": "commonjs",
   "dependencies": {
     "node-global-key-listener": "^0.3.0"
-  },
-  "devDependencies": {
-    "esbuild": "^0.27.4",
-    "postject": "^1.0.0-alpha.6"
   }
 }

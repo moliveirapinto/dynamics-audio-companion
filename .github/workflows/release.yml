@@ -22,27 +22,20 @@ jobs:
         run: npm install
         working-directory: native-host
 
-      - name: Bundle JS with esbuild
-        run: npx esbuild host.js --bundle --platform=node --outfile=host-bundle.js
-        working-directory: native-host
-
-      - name: Generate SEA blob
-        run: node --experimental-sea-config sea-config.json
-        working-directory: native-host
-
-      - name: Create standalone exe
-        shell: pwsh
-        working-directory: native-host
-        run: |
-          Copy-Item (Get-Command node).Source dynamics-audio-companion.exe
-          npx postject dynamics-audio-companion.exe NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --overwrite
-
       - name: Read version from manifest
         id: version
         shell: pwsh
         run: |
           $v = (Get-Content manifest.json | ConvertFrom-Json).version
           echo "VERSION=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Download official signed Node.js binary
+        shell: pwsh
+        run: |
+          $nodeUrl = "https://nodejs.org/dist/v22.15.0/win-x64/node.exe"
+          Invoke-WebRequest -Uri $nodeUrl -OutFile native-host\node.exe -UseBasicParsing
+          $sig = Get-AuthenticodeSignature native-host\node.exe
+          Write-Host "Signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
 
       - name: Stage release files
         shell: pwsh
@@ -51,21 +44,21 @@ jobs:
           New-Item $out -ItemType Directory -Force | Out-Null
 
           # Extension files
-          Copy-Item manifest.json, README.md, install.ps1 $out
+          Copy-Item manifest.json, README.md, install.ps1, install.bat $out
           Copy-Item src $out\src -Recurse
           Copy-Item icons $out\icons -Recurse
           Copy-Item scripts $out\scripts -Recurse
 
-          # Native host (compiled exe only, no source)
+          # Native host (node.exe + source + node_modules)
           $nh = "$out\native-host"
           New-Item $nh -ItemType Directory -Force | Out-Null
-          Copy-Item native-host\dynamics-audio-companion.exe $nh
+          Copy-Item native-host\node.exe $nh
+          Copy-Item native-host\host.js $nh
+          Copy-Item native-host\package.json $nh
+          Copy-Item native-host\run-host.cmd $nh
           Copy-Item native-host\install.bat $nh
           Copy-Item native-host\native-manifest.json $nh
-
-          # WinKeyServer.exe
-          $wks = Get-ChildItem native-host\node_modules -Recurse -Filter WinKeyServer.exe | Select-Object -First 1
-          if ($wks) { Copy-Item $wks.FullName $nh }
+          Copy-Item native-host\node_modules $nh\node_modules -Recurse
 
       - name: Create zip
         shell: pwsh

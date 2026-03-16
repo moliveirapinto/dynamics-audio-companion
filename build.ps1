@@ -10,11 +10,11 @@ Write-Host '  Dynamics Audio Companion - Build Package v' -NoNewline -Foreground
 Write-Host $version -ForegroundColor Cyan
 Write-Host ''
 
-# ── Step 1: Compile native host to standalone .exe (Node.js SEA) ──
-Write-Host '  [1/4] Compiling native host to standalone .exe ...' -ForegroundColor Yellow
+# ── Step 1: Prepare native host ──
+Write-Host '  [1/4] Preparing native host ...' -ForegroundColor Yellow
 $nhDir = Join-Path $root 'native-host'
 
-# Ensure dependencies are installed (build machine only)
+# Ensure dependencies are installed (needed for WinKeyServer.exe)
 if (-not (Test-Path (Join-Path $nhDir 'node_modules'))) {
     Write-Host '    Installing dependencies...' -ForegroundColor Gray
     Push-Location $nhDir
@@ -22,50 +22,36 @@ if (-not (Test-Path (Join-Path $nhDir 'node_modules'))) {
     Pop-Location
 }
 
-# Step 1a: Bundle JS into a single file
-Push-Location $nhDir
-Write-Host '    Bundling with esbuild...' -ForegroundColor Gray
-npx esbuild host.js --bundle --platform=node --outfile=host-bundle.js 2>$null
-if (-not (Test-Path (Join-Path $nhDir 'host-bundle.js'))) {
-    Write-Host '    ERROR: esbuild bundling failed' -ForegroundColor Red
-    Pop-Location
+# Download official signed Node.js binary
+$nodeVersion = 'v22.15.0'
+$nodeUrl = "https://nodejs.org/dist/$nodeVersion/win-x64/node.exe"
+$nodeExePath = Join-Path $nhDir 'node.exe'
+
+if (-not (Test-Path $nodeExePath)) {
+    Write-Host "    Downloading official Node.js $nodeVersion (signed by OpenJS Foundation)..." -ForegroundColor Gray
+    Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeExePath -UseBasicParsing
+}
+
+if (-not (Test-Path $nodeExePath)) {
+    Write-Host '    ERROR: Failed to download node.exe' -ForegroundColor Red
     exit 1
 }
 
-# Step 1b: Generate SEA blob
-Write-Host '    Generating SEA blob...' -ForegroundColor Gray
-node --experimental-sea-config sea-config.json 2>$null
-if (-not (Test-Path (Join-Path $nhDir 'sea-prep.blob'))) {
-    Write-Host '    ERROR: SEA blob generation failed' -ForegroundColor Red
-    Pop-Location
-    exit 1
+# Verify it's signed
+$sig = Get-AuthenticodeSignature $nodeExePath
+if ($sig.Status -eq 'Valid') {
+    Write-Host "    node.exe downloaded and verified (signed: $($sig.SignerCertificate.Subject))" -ForegroundColor Green
+} else {
+    Write-Host '    WARNING: node.exe signature could not be verified' -ForegroundColor Yellow
 }
 
-# Step 1c: Copy node.exe and inject the blob
-Write-Host '    Creating standalone exe...' -ForegroundColor Gray
-$exePath = Join-Path $nhDir 'dynamics-audio-companion.exe'
-if (Test-Path $exePath) { Remove-Item $exePath -Force }
-Copy-Item (Get-Command node).Source $exePath
-
-# Remove the signature so postject can modify the exe
-$ErrorActionPreference = 'SilentlyContinue'
-& signtool remove /s $exePath 2>$null
-$ErrorActionPreference = 'Stop'
-
-npx postject $exePath NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --overwrite 2>$null
-
-# Clean up intermediate files
-Remove-Item (Join-Path $nhDir 'host-bundle.js') -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $nhDir 'sea-prep.blob') -Force -ErrorAction SilentlyContinue
-
-Pop-Location
-
-if (-not (Test-Path $exePath)) {
-    Write-Host '    ERROR: SEA compilation failed' -ForegroundColor Red
-    exit 1
+# Locate WinKeyServer.exe
+$wksSrc = Get-ChildItem (Join-Path $nhDir 'node_modules') -Recurse -Filter 'WinKeyServer.exe' | Select-Object -First 1
+if ($wksSrc) {
+    Write-Host '    WinKeyServer.exe found' -ForegroundColor Green
+} else {
+    Write-Host '    WARNING: WinKeyServer.exe not found!' -ForegroundColor Red
 }
-$exeKB = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
-Write-Host "    dynamics-audio-companion.exe compiled ($exeKB MB)" -ForegroundColor Green
 
 # ── Step 2: Stage files ──
 Write-Host '  [2/4] Staging files...' -ForegroundColor Yellow
@@ -92,12 +78,16 @@ foreach ($d in @('src', 'icons', 'scripts')) {
     if (Test-Path $src) { Copy-Item $src (Join-Path $stageDir $d) -Recurse }
 }
 
-# Copy native host (compiled exe + WinKeyServer.exe only, no source/node_modules)
+# Copy native host (node.exe + host.js + WinKeyServer.exe, no node_modules)
 $nhDest = Join-Path $stageDir 'native-host'
 New-Item -ItemType Directory -Path $nhDest -Force | Out-Null
 
-# Copy compiled exe
-Copy-Item (Join-Path $nhDir 'dynamics-audio-companion.exe') $nhDest
+# Copy official signed node.exe
+Copy-Item (Join-Path $nhDir 'node.exe') $nhDest
+
+# Copy host script and dependencies list
+Copy-Item (Join-Path $nhDir 'host.js') $nhDest
+Copy-Item (Join-Path $nhDir 'package.json') $nhDest
 
 # Copy WinKeyServer.exe (required by node-global-key-listener at runtime)
 $wksPath = Get-ChildItem (Join-Path $nhDir 'node_modules') -Recurse -Filter 'WinKeyServer.exe' | Select-Object -First 1
@@ -108,9 +98,15 @@ if ($wksPath) {
     Write-Host '    WARNING: WinKeyServer.exe not found!' -ForegroundColor Red
 }
 
-# Copy install scripts and manifest template
-foreach ($f in @('install.bat', 'native-manifest.json')) {
-    $src = Join-Path $root ('native-host\' + $f)
+# Copy node_modules (needed at runtime for node-global-key-listener)
+$nmSrc = Join-Path $nhDir 'node_modules'
+if (Test-Path $nmSrc) {
+    Copy-Item $nmSrc (Join-Path $nhDest 'node_modules') -Recurse
+}
+
+# Copy install scripts, cmd wrapper, and manifest template
+foreach ($f in @('install.bat', 'run-host.cmd', 'native-manifest.json')) {
+    $src = Join-Path $nhDir $f
     if (Test-Path $src) { Copy-Item $src $nhDest }
 }
 

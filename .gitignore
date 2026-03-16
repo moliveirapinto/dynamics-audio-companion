@@ -3,7 +3,5 @@ node_modules/
 *.crx
 *.pem
 *.log
-*.blob
-host-bundle.js
 .env
 dist/

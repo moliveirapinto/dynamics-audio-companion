@@ -29,13 +29,10 @@ const { GlobalKeyboardListener } = require('node-global-key-listener');
 const path = require('path');
 
 // ── Resolve WinKeyServer.exe path ──
-// When compiled as a standalone exe (SEA), process.execPath points to the .exe.
-// WinKeyServer.exe ships alongside it. At dev time, let the library resolve it.
-let isStandalone = false;
-try { isStandalone = require('node:sea').isSea(); } catch (_) { /* dev mode */ }
-const keyListenerConfig = isStandalone
-  ? { windows: { serverPath: path.join(path.dirname(process.execPath), 'WinKeyServer.exe') } }
-  : {};
+// WinKeyServer.exe ships alongside host.js in the native-host folder.
+const keyListenerConfig = {
+  windows: { serverPath: path.join(__dirname, 'WinKeyServer.exe') }
+};
 
 // ── Native Messaging I/O ──
 

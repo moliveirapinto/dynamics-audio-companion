@@ -13,34 +13,64 @@ Write-Host "   Dynamics Audio Companion - Installer" -ForegroundColor Cyan
 Write-Host "  ================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 1: Verify native host exe ──
+# ── Step 1: Verify native host files ──
 Write-Host "  [1/4] Checking native host files..." -ForegroundColor Yellow
 $nhDir = Join-Path $root "native-host"
-$exePath = Join-Path $nhDir "dynamics-audio-companion.exe"
+$nodePath = Join-Path $nhDir "node.exe"
+$hostScript = Join-Path $nhDir "host.js"
+$runCmd = Join-Path $nhDir "run-host.cmd"
 $wksPath = Join-Path $nhDir "WinKeyServer.exe"
 
-if (-not (Test-Path $exePath)) {
-    Write-Host ""
-    Write-Host "  ERROR: dynamics-audio-companion.exe not found!" -ForegroundColor Red
-    Write-Host "  Expected at: $exePath" -ForegroundColor Red
+# Download node.exe if missing (official signed binary from nodejs.org)
+if (-not (Test-Path $nodePath)) {
+    Write-Host "  Downloading official Node.js runtime (signed by OpenJS Foundation)..." -ForegroundColor Yellow
+    $nodeVersion = 'v22.15.0'
+    $nodeUrl = "https://nodejs.org/dist/$nodeVersion/win-x64/node.exe"
+    try {
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodePath -UseBasicParsing
+        Write-Host "  node.exe downloaded" -ForegroundColor Green
+    } catch {
+        Write-Host "  ERROR: Failed to download node.exe" -ForegroundColor Red
+        Write-Host "  Check your internet connection and try again." -ForegroundColor Red
+        Write-Host ""
+        Read-Host "  Press Enter to exit"
+        exit 1
+    }
+}
+
+# Install node_modules if missing (needed for node-global-key-listener)
+if ((Test-Path $hostScript) -and -not (Test-Path (Join-Path $nhDir 'node_modules'))) {
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if ($npmCmd) {
+        Write-Host "  Installing dependencies..." -ForegroundColor Yellow
+        Push-Location $nhDir
+        npm install --production 2>$null | Out-Null
+        Pop-Location
+    } else {
+        Write-Host "  WARNING: node_modules folder is missing and npm is not available." -ForegroundColor Red
+        Write-Host "  Bluetooth headset support (native host) may not work." -ForegroundColor Yellow
+        Write-Host "  Download a pre-built release from:" -ForegroundColor White
+        Write-Host "    https://github.com/moliveirapinto/dynamics-audio-companion/releases" -ForegroundColor Cyan
+        Write-Host ""
+        Read-Host "  Press Enter to continue anyway (or Ctrl+C to abort)"
+    }
+}
+
+# Create run-host.cmd if missing
+if (-not (Test-Path $runCmd)) {
+    '@echo off' | Set-Content $runCmd
+    '"%~dp0node.exe" "%~dp0host.js"' | Add-Content $runCmd
+}
+
+if (-not (Test-Path $hostScript)) {
+    Write-Host "  ERROR: host.js not found!" -ForegroundColor Red
     Write-Host "  Make sure you extracted all files from the zip." -ForegroundColor Red
     Write-Host ""
     Read-Host "  Press Enter to exit"
     exit 1
 }
 
-if (-not (Test-Path $wksPath)) {
-    Write-Host ""
-    Write-Host "  WARNING: WinKeyServer.exe not found!" -ForegroundColor Red
-    Write-Host "  Your antivirus may have blocked it." -ForegroundColor Red
-    Write-Host "  Add this folder to your AV exclusions:" -ForegroundColor Yellow
-    Write-Host "    $nhDir" -ForegroundColor White
-    Write-Host "  Then re-extract the zip and run this installer again." -ForegroundColor Yellow
-    Write-Host ""
-    Read-Host "  Press Enter to continue anyway (or Ctrl+C to abort)"
-}
-
-Write-Host "  dynamics-audio-companion.exe found" -ForegroundColor Green
+Write-Host "  Native host files verified" -ForegroundColor Green
 
 # ── Step 2: Load extension in Edge ──
 Write-Host "  [2/4] Extension setup..." -ForegroundColor Yellow
@@ -65,14 +95,14 @@ if ($extId.Length -lt 10) {
 # ── Step 3: Register native messaging host ──
 Write-Host "  [3/4] Registering native messaging host..." -ForegroundColor Yellow
 
-# Native messaging manifest points directly to the .exe (no bat wrapper needed)
+# Native messaging manifest points to the cmd wrapper
 $manifestPath = Join-Path $nhDir "com.bose.d365.headset.json"
-$exePathEscaped = $exePath.Replace('\', '\\')
+$cmdPathEscaped = $runCmd.Replace('\', '\\')
 
 $jsonContent = '{
   "name": "com.bose.d365.headset",
   "description": "Dynamics Audio Companion",
-  "path": "' + $exePathEscaped + '",
+  "path": "' + $cmdPathEscaped + '",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://' + $extId + '/"
@@ -96,8 +126,9 @@ Write-Host "  [4/4] Verifying installation..." -ForegroundColor Yellow
 
 $checks = @()
 $checks += @{ Name = "Extension folder";    OK = (Test-Path "$root\manifest.json") }
-$checks += @{ Name = "dynamics-audio-companion.exe"; OK = (Test-Path $exePath) }
-$checks += @{ Name = "WinKeyServer.exe";    OK = (Test-Path $wksPath) }
+$checks += @{ Name = "node.exe";            OK = (Test-Path $nodePath) }
+$checks += @{ Name = "host.js";             OK = (Test-Path $hostScript) }
+$checks += @{ Name = "run-host.cmd";        OK = (Test-Path $runCmd) }
 $checks += @{ Name = "Native manifest";     OK = (Test-Path $manifestPath) }
 $checks += @{ Name = "Registry (Edge)";     OK = (Test-Path "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.bose.d365.headset") }
 
