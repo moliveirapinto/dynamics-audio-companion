@@ -70,6 +70,15 @@ if ((Test-Path $hostScript) -and -not (Test-Path (Join-Path $nhDir 'node_modules
     }
 }
 
+# Copy WinKeyServer.exe to native-host root if not already there (needed by host.js)
+if (-not (Test-Path $wksPath)) {
+    $wksFound = Get-ChildItem (Join-Path $nhDir 'node_modules') -Recurse -Filter 'WinKeyServer.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($wksFound) {
+        Copy-Item $wksFound.FullName $wksPath
+        Write-Host "  WinKeyServer.exe copied" -ForegroundColor Green
+    }
+}
+
 # Create run-host.cmd if missing
 if (-not (Test-Path $runCmd)) {
     '@echo off' | Set-Content $runCmd

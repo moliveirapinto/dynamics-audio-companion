@@ -142,6 +142,38 @@ Since `node.exe` and all dependencies are already in the folder, no downloads ar
 
 > **Why does each person need to run `install.bat`?** Each browser assigns a unique Extension ID when loading an unpacked extension. The installer registers that ID so the browser allows the native host to communicate with the extension.
 
+### About the Setup .exe file
+
+Running `build.ps1` produces a self-extracting installer (`DynamicsAudioCompanion-v*-Setup.exe`). This is a small C# stub with the release zip appended to it. When you double-click it, it extracts all files to `%LocalAppData%\DynamicsAudioCompanion` and runs `install.ps1` automatically — no manual extraction needed.
+
+This .exe is **not** the native messaging host itself. It is just a convenient installer wrapper. The actual native host is the official `node.exe` binary (signed by the OpenJS Foundation) paired with `host.js`.
+
+> **Prefer the .zip from the [Releases page](https://github.com/moliveirapinto/dynamics-audio-companion/releases) for the smoothest experience.** The .exe is an optional convenience for sharing with coworkers who prefer a single-file installer.
+
+### Antivirus / Windows SmartScreen warnings
+
+Because the Setup .exe is not code-signed with a commercial certificate, **Windows SmartScreen or your antivirus may flag it**. This is a false positive — the .exe is compiled from a short open-source C# stub (visible in `build.ps1`) that only extracts files and runs the installer.
+
+**How to proceed if Windows SmartScreen blocks the .exe:**
+
+1. Click **"More info"** on the SmartScreen dialog
+2. Click **"Run anyway"**
+
+**If your antivirus quarantines or deletes the .exe:**
+
+1. Open your antivirus settings (e.g. Windows Security → Virus & threat protection → Protection history)
+2. Find the blocked file and choose **"Allow"** or **"Restore"**
+3. Add the folder where you extracted the .exe to your antivirus **exclusion list**:
+   - **Windows Security:** Settings → Virus & threat protection → Manage settings → Exclusions → Add an exclusion → Folder
+   - **Other AV software:** Look for "Exclusions", "Allowlist", or "Exceptions" in settings
+
+**To avoid antivirus issues entirely**, use the **.zip** instead of the .exe:
+1. Download **DynamicsAudioCompanion-v*.zip** from the [Releases page](https://github.com/moliveirapinto/dynamics-audio-companion/releases)
+2. Extract it to a permanent folder
+3. Double-click `install.bat`
+
+> **What about `node.exe` and `WinKeyServer.exe`?** Both are legitimate binaries. `node.exe` is the official Node.js runtime digitally signed by the OpenJS Foundation — antivirus will not flag it. `WinKeyServer.exe` ships with the `node-global-key-listener` library and is used to capture global keyboard/media key events; in rare cases, some antivirus software may flag it. If that happens, add the `native-host` folder to your exclusion list as described above.
+
 ### How it works: USB vs Bluetooth
 
 This extension supports headsets through two modes:

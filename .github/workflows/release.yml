@@ -56,9 +56,17 @@ jobs:
           Copy-Item native-host\host.js $nh
           Copy-Item native-host\package.json $nh
           Copy-Item native-host\run-host.cmd $nh
-          Copy-Item native-host\install.bat $nh
           Copy-Item native-host\native-manifest.json $nh
           Copy-Item native-host\node_modules $nh\node_modules -Recurse
+
+          # Copy WinKeyServer.exe to native-host root for direct resolution
+          $wks = Get-ChildItem native-host\node_modules -Recurse -Filter 'WinKeyServer.exe' | Select-Object -First 1
+          if ($wks) {
+            Copy-Item $wks.FullName $nh
+            Write-Host "WinKeyServer.exe copied to native-host root"
+          } else {
+            Write-Host "WARNING: WinKeyServer.exe not found in node_modules"
+          }
 
       - name: Create zip
         shell: pwsh

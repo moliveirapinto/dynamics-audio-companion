@@ -27,12 +27,15 @@
 
 const { GlobalKeyboardListener } = require('node-global-key-listener');
 const path = require('path');
+const fs = require('fs');
 
 // ── Resolve WinKeyServer.exe path ──
-// WinKeyServer.exe ships alongside host.js in the native-host folder.
-const keyListenerConfig = {
-  windows: { serverPath: path.join(__dirname, 'WinKeyServer.exe') }
-};
+// Check alongside host.js first (build.ps1 copies it here).
+// If not found, let the library resolve it from node_modules (CI/source installs).
+const localServer = path.join(__dirname, 'WinKeyServer.exe');
+const keyListenerConfig = fs.existsSync(localServer)
+  ? { windows: { serverPath: localServer } }
+  : {};
 
 // ── Native Messaging I/O ──
 
