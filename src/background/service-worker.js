@@ -12,7 +12,6 @@
  */
 
 import { MSG, SOURCE, CALL_STATE } from '../shared/messages.js';
-import { getFriendlyName } from '../shared/bose-hid-protocol.js';
 
 // ── Diagnostic log buffer (kept in memory, shown in popup) ──
 const LOG_MAX = 100;
@@ -431,13 +430,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
 
       case MSG.HID_DEVICE_CONNECTED:
-        state.device = {
-          ...payload,
-          friendlyName: getFriendlyName(payload.model),
-        };
+        state.device = payload;
         state.connectionMode = 'usb';
         state.lastDeviceError = null;
-        log(`USB headset connected: ${state.device.friendlyName} (${payload.productName})`);
+        log(`USB headset connected: ${payload.model} (${payload.productName})`);
         broadcastStatus();
         syncHeadsetLeds();
         break;
@@ -590,11 +586,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         return false;
 
-      case MSG.GET_STATUS:
+      case MSG.GET_STATUS: {
         // Actively scan for D365 tabs instead of relying on cached id
-        findD365Tab().then(tab => {
-          if (tab) state.d365TabId = tab.id;
-          else state.d365TabId = null;
+        const respond = () => {
           sendResponse({
             device: state.device,
             callState: state.callState,
@@ -603,8 +597,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             connectionMode: state.connectionMode,
             lastDeviceError: state.lastDeviceError,
           });
+        };
+        findD365Tab().then(tab => {
+          state.d365TabId = tab ? tab.id : null;
+          respond();
+        }).catch(() => {
+          // If tab query fails, use cached value
+          respond();
         });
         return true; // async sendResponse
+      }
 
       case MSG.GET_LOGS:
         sendResponse({ logs: logBuffer.slice() });

@@ -20,6 +20,7 @@ import {
   analyzeDeviceCollections,
   identifyDeviceModel,
   getVendorQuirks,
+  getFriendlyName,
   USAGE_PAGE,
 } from '../shared/bose-hid-protocol.js';
 
@@ -114,6 +115,7 @@ async function openDevice(hidDevice) {
   // Notify service worker
   sendMessage(MSG.HID_DEVICE_CONNECTED, {
     model,
+    friendlyName: getFriendlyName(model),
     productName: device.productName,
     vendorId: device.vendorId,
     productId: device.productId,

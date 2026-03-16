@@ -317,7 +317,7 @@ async function messageLoop() {
 // Send ready message
 sendMessage({
   type: 'READY',
-  version: '1.11.0',
+  version: '1.11.1',
   platform: process.platform,
   timestamp: Date.now(),
 });

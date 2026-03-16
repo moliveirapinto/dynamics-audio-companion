@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dynamics Audio Companion",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "description": "Connect Bluetooth/USB headsets (Bose, Jabra, Poly, Yealink, Plantronics, AirPods) to Dynamics 365 Contact Center — accept/reject/hold/mute calls with headset buttons",
   "permissions": [
     "offscreen",
