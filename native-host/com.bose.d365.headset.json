@@ -1,0 +1,9 @@
+{ 
+  "name": "com.bose.d365.headset", 
+  "description": "Dynamics Audio Companion", 
+  "path": "C:\\Users\\maoliveira\\OneDrive - Microsoft\\Desktop\\HEADPHONE\\native-host\\dynamics-audio-companion.exe", 
+  "type": "stdio", 
+  "allowed_origins": [ 
+    "chrome-extension://beiphebomcgfnbjdnifblggaaonaikje/" 
+  ] 
+} 

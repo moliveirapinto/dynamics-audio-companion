@@ -1,0 +1,7 @@
+{
+  "name": "com.bose.d365.headset",
+  "description": "Dynamics Audio Companion — captures Bluetooth headset button presses",
+  "path": "PLACEHOLDER_WILL_BE_SET_BY_INSTALL_SCRIPT",
+  "type": "stdio",
+  "allowed_origins": []
+}

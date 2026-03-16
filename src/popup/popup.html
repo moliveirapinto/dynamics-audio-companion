@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dynamics Audio Companion</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <svg viewBox="0 0 48 48" width="20" height="20" fill="currentColor">
+          <path d="M6.5 24C6.5 14.335 14.335 6.5 24 6.5C33.665 6.5 41.5 14.335 41.5 24V28H36.25C35.5596 28 35 28.5596 35 29.25V42.75C35 43.4404 35.5596 44 36.25 44H38.25C41.4256 44 44 41.4256 44 38.25V24C44 12.9543 35.0457 4 24 4C12.9543 4 4 12.9543 4 24V38.25C4 41.4256 6.57436 44 9.75 44H11.75C12.4404 44 13 43.4404 13 42.75V29.25C13 28.5596 12.4404 28 11.75 28H6.5V24ZM22.75 23.25L22.75 44.75C22.75 45.4404 23.3096 46 24 46C24.6904 46 25.25 45.4404 25.25 44.75L25.25 23.25C25.25 22.5596 24.6904 22 24 22C23.3096 22 22.75 22.5596 22.75 23.25ZM18.25 28C18.9404 28 19.5 28.5596 19.5 29.25V38.75C19.5 39.4404 18.9404 40 18.25 40C17.5596 40 17 39.4404 17 38.75V29.25C17 28.5596 17.5596 28 18.25 28ZM31 29.25C31 28.5596 30.4404 28 29.75 28C29.0596 28 28.5 28.5596 28.5 29.25V38.75C28.5 39.4404 29.0596 40 29.75 40C30.4404 40 31 39.4404 31 38.75V29.25Z"/>
+        </svg>
+        <h1>Dynamics Audio Companion</h1>
+      </div>
+    </header>
+
+    <!-- Device Section -->
+    <section id="device-section" class="section">
+      <div class="section-header">
+        <span class="dot" id="device-dot"></span>
+        <span id="device-label">Headset</span>
+      </div>
+      <div id="device-info" class="info-text">Not connected</div>
+      <div id="bt-hint" class="info-text hint">Bluetooth headsets connect automatically via native host.</div>
+      <button id="btn-connect" class="btn btn-primary">Connect Headset</button>
+      <button id="btn-disconnect" class="btn btn-danger hidden">Disconnect</button>
+    </section>
+
+    <!-- D365 Section -->
+    <section id="d365-section" class="section">
+      <div class="section-header">
+        <span class="dot" id="d365-dot"></span>
+        <span>Dynamics 365</span>
+      </div>
+      <div id="d365-info" class="info-text">Not detected</div>
+    </section>
+
+    <!-- Call Status -->
+    <section id="call-section" class="section">
+      <div class="section-header">
+        <span class="dot" id="call-dot"></span>
+        <span>Call Status</span>
+      </div>
+      <div id="call-state" class="call-state">Idle</div>
+      <div id="mute-state" class="mute-indicator hidden">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M1.5 1.5l21 21M15 9.34V4a3 3 0 0 0-5.94-.6M9 9v3a3 3 0 0 0 5.12 2.12M17 10a5 5 0 0 1-.28 1.63M5 10a7 7 0 0 0 11.94 4.95M12 19v3M8 22h8"/>
+        </svg>
+        <span>Muted</span>
+      </div>
+    </section>
+
+    <!-- Button Mapping Reference -->
+    <section class="section section-compact">
+      <div class="section-header">
+        <span>Button Mapping</span>
+      </div>
+      <div class="mapping-grid">
+        <div class="mapping-item">
+          <kbd>1× Tap</kbd>
+          <span>Answer / Mute</span>
+        </div>
+        <div class="mapping-item">
+          <kbd>2× Tap</kbd>
+          <span>End Call</span>
+        </div>
+        <div class="mapping-item">
+          <kbd>3× Tap</kbd>
+          <span>Hold / Resume</span>
+        </div>
+        <div class="mapping-item">
+          <kbd>Vol ±</kbd>
+          <span>Volume</span>
+        </div>
+      </div>
+      <div style="font-size: 10px; color: #888; margin-top: 6px; padding: 0 4px; line-height: 1.4;">
+        Double-tap = Next Track (AirPods firmware) or 2× press (Bose/Jabra/Poly).<br>
+        Triple-tap = Prev Track (AirPods). Dedicated Mute buttons also toggle mute.
+      </div>
+    </section>
+
+    <footer>
+      <span class="version" id="version-text">v...</span>
+      <a href="#" id="btn-test" class="test-link">Run Diagnostics</a>
+    </footer>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
