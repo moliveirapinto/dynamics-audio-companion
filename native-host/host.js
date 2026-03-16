@@ -191,6 +191,11 @@ keyboard.addListener((event, down) => {
 
   if (!action) return;
 
+  // During any active call state, ALWAYS consume recognized media keys
+  // to prevent other apps (Spotify, etc.) from receiving them.
+  // This must happen regardless of whether we map the key to a D365 action.
+  const shouldConsume = callState !== 'idle';
+
   // Map action to specific D365 call control based on current call state
   let d365Action = null;
 
@@ -216,8 +221,6 @@ keyboard.addListener((event, down) => {
         d365Action = 'rejectCall';
       } else if (callState === 'active' || callState === 'hold') {
         d365Action = 'endCall';
-      } else {
-        return;
       }
       break;
 
@@ -225,8 +228,6 @@ keyboard.addListener((event, down) => {
       if (callState === 'active' || callState === 'hold') {
         muted = !muted;
         d365Action = 'toggleMute';
-      } else {
-        return; // Let system handle volume mute
       }
       break;
 
@@ -269,12 +270,12 @@ keyboard.addListener((event, down) => {
       key: keyName,
       timestamp: Date.now(),
     });
+  }
 
-    // Consume the media key so other apps (Spotify, etc.) don't receive it.
-    // Only pass through during idle state (no active/ringing call).
-    if (callState !== 'idle') {
-      return true;
-    }
+  // Always consume recognized media keys during a call so other apps
+  // (Spotify, etc.) never receive them — even keys we don't act on.
+  if (shouldConsume) {
+    return true;
   }
 });
 
@@ -317,7 +318,7 @@ async function messageLoop() {
 // Send ready message
 sendMessage({
   type: 'READY',
-  version: '1.12.4',
+  version: '1.12.5',
   platform: process.platform,
   timestamp: Date.now(),
 });

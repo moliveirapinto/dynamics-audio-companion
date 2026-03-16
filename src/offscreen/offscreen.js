@@ -412,10 +412,20 @@ function startMediaCapture(callState, muted) {
   mediaCallState = callState || 'idle';
   mediaMuted = muted || false;
 
+  // Re-assert media session priority on every state update,
+  // not just the first start — this reclaims focus from Spotify/etc.
+  // after Chrome may have auto-paused our audio.
+  const audio = document.getElementById('silent-audio');
+  if (navigator.mediaSession) {
+    navigator.mediaSession.playbackState = 'playing';
+  }
+  if (audio.paused && mediaCapturing) {
+    audio.play().catch(() => {});
+  }
+
   if (mediaCapturing) return; // Already active
   mediaCapturing = true;
 
-  const audio = document.getElementById('silent-audio');
   if (!audio.src) {
     const blob = createSilentWavBlob();
     audio.src = URL.createObjectURL(blob);
@@ -429,12 +439,6 @@ function startMediaCapture(callState, muted) {
       artist: 'Dynamics Audio Companion',
       album: 'Dynamics 365 Contact Center',
     });
-  }
-
-  // Mark our session as actively playing so Chrome/Windows prioritizes it
-  // over paused sessions (e.g. Spotify paused in background)
-  if (navigator.mediaSession) {
-    navigator.mediaSession.playbackState = 'playing';
   }
 
   audio.play().then(() => {
