@@ -164,7 +164,7 @@ function syncNativeHostState() {
 }
 
 function handleNativeAction(action) {
-  log(`Native action: ${action} (callState: ${state.callState})`);
+  log(`Native action: ${action} (callState: ${state.callState}, d365Tab: ${state.d365TabId || 'NONE'})`);
 
   switch (action) {
     case 'acceptCall':
@@ -345,13 +345,15 @@ async function sendToD365(type, payload) {
   try {
     let tab = state.d365TabId ? await chrome.tabs.get(state.d365TabId).catch(() => null) : null;
     if (!tab) {
+      log('Cached d365TabId invalid, scanning for D365 tab...');
       tab = await findD365Tab();
     }
     if (!tab) {
-      log('No D365 tab found');
+      log('No D365 tab found — cannot deliver action: ' + JSON.stringify(payload));
       return;
     }
     state.d365TabId = tab.id;
+    log(`Sending to D365 tab ${tab.id}: ${JSON.stringify(payload)}`);
     try {
       await chrome.tabs.sendMessage(tab.id, { source: SOURCE.SERVICE_WORKER, type, payload });
     } catch (sendErr) {
