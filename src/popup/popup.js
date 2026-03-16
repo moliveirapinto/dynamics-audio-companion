@@ -27,17 +27,22 @@ const progressFill     = document.getElementById('progress-fill');
 let isConnecting = false; // Track connecting state so updateUI doesn't reset it
 let connectStartTime = 0;
 let connectStepInterval = null;
+let backgroundPollInterval = null; // Continuous slow poll for status updates
 
 // ── Connection progress phases ──
 const CONNECT_PHASES = [
   { at: 0,  pct: 10,  text: 'Starting native host...' },
-  { at: 2,  pct: 25,  text: 'Searching for headset...' },
-  { at: 5,  pct: 45,  text: 'Waiting for Bluetooth pairing...',
+  { at: 2,  pct: 20,  text: 'Searching for headset...' },
+  { at: 5,  pct: 35,  text: 'Waiting for Bluetooth pairing...',
     tip: '💡 Make sure your headset is powered on and in range.' },
-  { at: 8,  pct: 60,  text: 'Still connecting — hang tight...',
-    tip: '💡 Some headsets take up to 15 seconds on first connection.' },
-  { at: 12, pct: 80,  text: 'Almost there...',
+  { at: 10, pct: 50,  text: 'Still connecting — hang tight...',
+    tip: '💡 Some headsets take up to 30 seconds on first connection.' },
+  { at: 15, pct: 65,  text: 'Establishing audio link...',
+    tip: '💡 If this is the first time, allow a bit longer for setup.' },
+  { at: 25, pct: 80,  text: 'Almost there...',
     tip: '💡 If it doesn\'t connect, try turning the headset off and on.' },
+  { at: 35, pct: 90,  text: 'Finalizing connection...',
+    tip: '💡 Check that your headset is not connected to another device.' },
 ];
 
 function startConnectProgress() {
@@ -99,12 +104,12 @@ btnConnect.addEventListener('click', async () => {
       type: MSG.HID_REQUEST_CONNECT,
     });
 
-    // Poll status until connected or timeout (15s)
+    // Poll status until connected or timeout (45s)
     let attempts = 0;
     const pollInterval = setInterval(() => {
       attempts++;
       refreshStatus();
-      if (attempts >= 30) {
+      if (attempts >= 90) {
         clearInterval(pollInterval);
         isConnecting = false;
         stopConnectProgress();
@@ -139,6 +144,13 @@ btnTest.addEventListener('click', (e) => {
 // ── Status updates ──
 
 function updateUI(status) {
+  // If the service worker says it's still connecting, resume connecting UI
+  if (!status.device && status.connectingInProgress && !isConnecting) {
+    isConnecting = true;
+    connectStartTime = status.connectStartedAt || Date.now();
+    startConnectProgress();
+  }
+
   // Device — show connected status for USB or Bluetooth
   if (status.device) {
     // Connected! Clear connecting state
@@ -156,25 +168,36 @@ function updateUI(status) {
   } else if (isConnecting) {
     // Still waiting for connection — keep the connecting animation
     deviceDot.className = 'dot connecting';
-    deviceInfo.textContent = 'Connecting to headset...';
+    if (status.nativeHostConnected) {
+      deviceInfo.textContent = 'Native host ready — waiting for headset signal...';
+    } else {
+      deviceInfo.textContent = 'Connecting to headset...';
+    }
     btnConnect.textContent = 'Connecting...';
     btnConnect.disabled = true;
     btHint.classList.add('hidden');
   } else {
-    deviceDot.className = 'dot';
     deviceLabel.textContent = 'Headset';
-    if (status.lastDeviceError) {
-      deviceInfo.textContent = status.lastDeviceError;
-    } else if (status.nativeHostConnected) {
-      deviceInfo.textContent = 'Native host connected — waiting for BT headset';
+    if (status.nativeHostConnected) {
+      // Native host is running — BT headset is functional even if state.device wasn't set
+      deviceDot.className = 'dot connected';
+      deviceInfo.textContent = 'Bluetooth Headset [BT] — ready';
+      btnConnect.classList.add('hidden');
+      btnDisconnect.classList.remove('hidden');
+      btHint.classList.add('hidden');
     } else {
-      deviceInfo.textContent = 'Not connected';
+      deviceDot.className = 'dot';
+      if (status.lastDeviceError) {
+        deviceInfo.textContent = status.lastDeviceError;
+      } else {
+        deviceInfo.textContent = 'Not connected';
+      }
+      btnConnect.classList.remove('hidden');
+      btnConnect.textContent = 'Connect Headset';
+      btnConnect.disabled = false;
+      btnDisconnect.classList.add('hidden');
+      btHint.classList.remove('hidden');
     }
-    btnConnect.classList.remove('hidden');
-    btnConnect.textContent = 'Connect Headset';
-    btnConnect.disabled = false;
-    btnDisconnect.classList.add('hidden');
-    btHint.classList.remove('hidden');
   }
 
   // D365 — show more helpful info
@@ -227,6 +250,9 @@ chrome.runtime.onMessage.addListener((message) => {
     updateUI(message.payload);
   }
 });
+
+// Continuous background poll — keeps UI in sync even without broadcasts
+backgroundPollInterval = setInterval(refreshStatus, 3000);
 
 // Initial load
 refreshStatus();

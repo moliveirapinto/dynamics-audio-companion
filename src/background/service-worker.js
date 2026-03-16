@@ -34,6 +34,8 @@ const state = {
   nativeHostConnected: false,
   connectionMode: null,  // 'usb' | 'bluetooth' | null
   lastDeviceError: null, // error message from last connection attempt
+  connectingInProgress: false,  // true while waiting for native host READY
+  connectStartedAt: 0,          // timestamp when connection attempt started
 };
 
 // ── Native Messaging Host (for Bluetooth headsets) ──
@@ -67,6 +69,9 @@ function connectNativeHost() {
     nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
 
     log('connectNativeHost() → connecting (gen=' + gen + ')...');
+    state.connectingInProgress = true;
+    state.connectStartedAt = Date.now();
+    broadcastStatus();
 
     nativePort.onMessage.addListener((msg) => {
       if (gen !== nativePortGeneration) return; // Stale port — ignore
@@ -76,6 +81,7 @@ function connectNativeHost() {
       switch (msg.type) {
         case 'READY':
           state.nativeHostConnected = true;
+          state.connectingInProgress = false;
           state.connectionMode = state.connectionMode || 'bluetooth';
           state.lastDeviceError = null;
           state.device = state.device || {
@@ -114,6 +120,7 @@ function connectNativeHost() {
       log('Native host DISCONNECTED: ' + (lastError?.message || 'unknown'));
       nativePort = null;
       state.nativeHostConnected = false;
+      state.connectingInProgress = false;
       if (state.connectionMode === 'bluetooth') {
         state.device = null;
         state.connectionMode = null;
@@ -395,6 +402,8 @@ function broadcastStatus() {
     nativeHostConnected: state.nativeHostConnected,
     connectionMode: state.connectionMode,
     lastDeviceError: state.lastDeviceError,
+    connectingInProgress: state.connectingInProgress,
+    connectStartedAt: state.connectStartedAt,
     btReady: !!state.d365TabId, // BT media session works when D365 tab exists
   };
   // Broadcast to all extension views (popup, etc.)
@@ -441,9 +450,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
 
       case MSG.HID_DEVICE_DISCONNECTED:
-        // If native host (BT) is connected, ignore USB HID disconnect entirely
-        if (state.nativeHostConnected && state.connectionMode === 'bluetooth') {
-          log('Ignoring USB HID disconnect — BT native host active');
+        // If native host (BT) is connected or connecting, ignore USB HID disconnect
+        if ((state.nativeHostConnected || state.connectingInProgress) &&
+            state.connectionMode !== 'usb') {
+          log('Ignoring USB HID disconnect — BT native host active/connecting');
           break;
         }
         if (state.connectionMode === 'usb') {
@@ -451,7 +461,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           state.connectionMode = null;
         }
         // Only set error if we don't have an active connection via another mode
-        if (!state.device && !state.nativeHostConnected) {
+        if (!state.device && !state.nativeHostConnected && !state.connectingInProgress) {
           state.lastDeviceError = payload?.message || null;
         }
         log('HID disconnected: ' + (payload?.reason || '') + ' ' + (payload?.message || ''));
@@ -598,6 +608,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             d365Connected: !!state.d365TabId,
             connectionMode: state.connectionMode,
             lastDeviceError: state.lastDeviceError,
+            nativeHostConnected: state.nativeHostConnected,
+            connectingInProgress: state.connectingInProgress,
+            connectStartedAt: state.connectStartedAt,
           });
         };
         findD365Tab().then(tab => {
