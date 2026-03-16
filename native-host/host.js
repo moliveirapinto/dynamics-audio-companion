@@ -209,7 +209,7 @@ keyboard.addListener((event, down) => {
         hookClickCount = 0;
         hookClickTimer = null;
       }, DOUBLE_CLICK_MS);
-      return true; // Consume key immediately so Spotify/other apps don't receive it
+      return true; // Consume key so Spotify/other apps don't receive it
 
     case 'drop':
       if (callState === 'ringing') {
@@ -270,10 +270,9 @@ keyboard.addListener((event, down) => {
       timestamp: Date.now(),
     });
 
-    // During active/hold: consume the key so Spotify/other apps don't receive it.
-    // During ringing/idle: let the key pass through so Media Session also fires
-    // as a redundant backup path for accept-call.
-    if (callState === 'active' || callState === 'hold') {
+    // Consume the media key so other apps (Spotify, etc.) don't receive it.
+    // Only pass through during idle state (no active/ringing call).
+    if (callState !== 'idle') {
       return true;
     }
   }
@@ -318,7 +317,7 @@ async function messageLoop() {
 // Send ready message
 sendMessage({
   type: 'READY',
-  version: '1.12.3',
+  version: '1.12.4',
   platform: process.platform,
   timestamp: Date.now(),
 });

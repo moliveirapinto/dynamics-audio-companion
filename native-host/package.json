@@ -1,6 +1,6 @@
 {
   "name": "bose-d365-native-host",
-  "version": "1.12.3",
+  "version": "1.12.4",
   "description": "Dynamics Audio Companion - Native Messaging Host",
   "main": "host.js",
   "scripts": {

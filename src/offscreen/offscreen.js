@@ -431,6 +431,12 @@ function startMediaCapture(callState, muted) {
     });
   }
 
+  // Mark our session as actively playing so Chrome/Windows prioritizes it
+  // over paused sessions (e.g. Spotify paused in background)
+  if (navigator.mediaSession) {
+    navigator.mediaSession.playbackState = 'playing';
+  }
+
   audio.play().then(() => {
     console.log('[Offscreen] Media capture started — media keys now routed here');
     setupMediaSessionHandlers();
@@ -449,6 +455,11 @@ function stopMediaCapture() {
 
   const audio = document.getElementById('silent-audio');
   audio.pause();
+
+  // Release playback state so other apps reclaim media keys
+  if (navigator.mediaSession) {
+    navigator.mediaSession.playbackState = 'none';
+  }
 
   // Clear handlers
   const actions = ['play', 'pause', 'stop', 'nexttrack', 'previoustrack'];
@@ -537,6 +548,10 @@ function keepAlive() {
   const audio = document.getElementById('silent-audio');
   if (audio.paused) {
     audio.play().catch(() => {});
+  }
+  // Re-assert playing state after each action so we keep priority
+  if (navigator.mediaSession) {
+    navigator.mediaSession.playbackState = 'playing';
   }
 }
 
