@@ -185,8 +185,8 @@ function detectCallState() {
   // === RINGING DETECTION ===
   
   // A) Text-based: look for Accept + Decline buttons appearing together
-  const acceptBtn = findButtonByText('accept', 'answer');
-  const declineBtn = findButtonByText('decline', 'reject');
+  const acceptBtn = findButtonByText('accept', 'answer', 'pick up', 'atender', 'aceptar', 'annehmen', 'accepter');
+  const declineBtn = findButtonByText('decline', 'reject', 'recusar', 'rechazar', 'ablehnen', 'refuser');
   if (acceptBtn) {
     detectionLog = 'RINGING: found Accept button via text search';
     return CALL_STATE.RINGING;
@@ -201,7 +201,7 @@ function detectCallState() {
   // === ACTIVE CALL DETECTION ===
   
   // A) Text-based: look for "End call" or "Hang up" button
-  const endBtn = findButtonByText('end call', 'hang up');
+  const endBtn = findButtonByText('end call', 'hang up', 'end', 'encerrar', 'finalizar', 'auflegen', 'raccrocher');
   if (endBtn) {
     // Check if on hold
     const resumeBtn = findButtonByText('resume', 'unhold');

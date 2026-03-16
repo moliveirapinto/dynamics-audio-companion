@@ -123,14 +123,15 @@ function findButtonInFrames(...terms) {
         const doc = iframe.contentDocument;
         if (!doc) continue;
         const candidates = doc.querySelectorAll(
-          'button, [role="button"], [role="menuitem"]'
+          'button, [role="button"], [role="menuitem"], a[role="button"], [data-id]'
         );
         for (const el of candidates) {
-          if (el.disabled) continue;
+          if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
           const text = (el.textContent || '').trim().toLowerCase();
           const label = (el.getAttribute('aria-label') || '').toLowerCase();
           const title = (el.getAttribute('title') || '').toLowerCase();
-          const combined = `${text} ${label} ${title}`;
+          const dataId = (el.getAttribute('data-id') || '').toLowerCase();
+          const combined = `${text} ${label} ${title} ${dataId}`;
           for (const term of terms) {
             if (combined.includes(term.toLowerCase())) {
               if (el.offsetParent !== null || el.offsetWidth > 0) return el;
@@ -164,7 +165,10 @@ const ACTIONS = {
     console.log('[PageScript] acceptCall: searching for Accept/Answer button...');
 
     // Strategy 1: Broad text search (most reliable across D365 versions)
-    const btn = findButtonInFrames('accept', 'answer');
+    const btn = findButtonInFrames(
+      'accept', 'answer', 'pick up', 'atender', 'aceptar', 'annehmen',
+      'accepter', 'accetta', 'akceptuj'
+    );
     if (btn) {
       console.log('[PageScript] acceptCall: found button by text:', btn.textContent?.trim());
       btn.click();
@@ -173,19 +177,27 @@ const ACTIONS = {
 
     // Strategy 2: Known D365 CSS selectors
     const clicked = clickButton([
-      '[data-id*="accept"]',
+      '[data-id*="accept" i]',
       '[data-id*="Accept"]',
-      'button[aria-label*="Accept"]',
-      'button[aria-label*="Answer"]',
+      '[data-id*="answer" i]',
+      'button[aria-label*="Accept" i]',
+      'button[aria-label*="Answer" i]',
+      'button[aria-label*="Pick up" i]',
       '.oc-accept-call-button',
-      'button[title*="Accept"]',
-      'button[title*="Answer"]',
-      // Omnichannel notification buttons
+      'button[title*="Accept" i]',
+      'button[title*="Answer" i]',
+      // D365 Omnichannel voice/call notification buttons
       '[data-id*="notification"] button:first-child',
       '[data-id*="Notification"] button:first-child',
-      // Fluent UI notification action buttons
+      '[data-id*="voice"] button:first-child',
+      '[data-id*="Voice"] button:first-child',
+      // Fluent UI / PCF notification action buttons
       '.ms-Panel button.ms-Button--primary',
       '.ms-Dialog button.ms-Button--primary',
+      // Phone icon button (green phone = accept)
+      'button[class*="accept" i]',
+      'button[class*="answer" i]',
+      'button[class*="pickup" i]',
     ]);
 
     if (clicked) {
@@ -201,33 +213,63 @@ const ACTIONS = {
       } catch (_) { /* ignore */ }
     }
 
-    console.log('[PageScript] acceptCall: NO ACCEPT BUTTON FOUND');
+    // Auto DOM-dump for debugging — log every clickable element on page
+    console.log('[PageScript] acceptCall: NO ACCEPT BUTTON FOUND — dumping all buttons/interactive elements:');
+    const allClickable = document.querySelectorAll('button, [role="button"], [role="menuitem"], a[role="button"], [data-id], input[type="button"], input[type="submit"]');
+    allClickable.forEach((el, i) => {
+      const text = (el.textContent || '').trim().substring(0, 80);
+      const label = el.getAttribute('aria-label') || '';
+      const title = el.getAttribute('title') || '';
+      const dataId = el.getAttribute('data-id') || '';
+      const cls = el.className?.toString?.()?.substring(0, 80) || '';
+      const tag = el.tagName;
+      const vis = el.offsetParent !== null ? 'visible' : 'hidden';
+      console.log(`[DOM-DUMP] #${i} <${tag}> vis=${vis} text="${text}" aria-label="${label}" title="${title}" data-id="${dataId}" class="${cls}"`);
+    });
+    // Also scan iframes
+    try {
+      document.querySelectorAll('iframe').forEach((iframe, fi) => {
+        try {
+          const doc = iframe.contentDocument;
+          if (!doc) return;
+          const iframeBtns = doc.querySelectorAll('button, [role="button"], [role="menuitem"], a[role="button"], [data-id]');
+          iframeBtns.forEach((el, i) => {
+            const text = (el.textContent || '').trim().substring(0, 80);
+            const label = el.getAttribute('aria-label') || '';
+            const dataId = el.getAttribute('data-id') || '';
+            const vis = el.offsetParent !== null ? 'visible' : 'hidden';
+            console.log(`[DOM-DUMP] iframe#${fi} #${i} <${el.tagName}> vis=${vis} text="${text}" aria-label="${label}" data-id="${dataId}"`);
+          });
+        } catch (_) { /* cross-origin */ }
+      });
+    } catch (_) {}
     // Send diagnostic back so user can see this in logs
     sendToContentScript('ACTION_RESULT', {
       action: 'acceptCall',
       success: false,
-      message: 'No Accept/Answer button found on page',
+      message: 'No Accept/Answer button found on page — check console for DOM dump',
     });
     return false;
   },
 
   rejectCall() {
-    const btn = findButtonInFrames('decline', 'reject');
+    const btn = findButtonInFrames('decline', 'reject', 'recusar', 'rechazar', 'ablehnen', 'refuser', 'rifiuta');
     if (btn) { btn.click(); return true; }
     return clickButton([
-      '[data-id*="reject"]', '[data-id*="decline"]', '[data-id*="Reject"]', '[data-id*="Decline"]',
-      'button[aria-label*="Reject"]', 'button[aria-label*="Decline"]',
-      'button[title*="Decline"]', 'button[title*="Reject"]',
+      '[data-id*="reject" i]', '[data-id*="decline" i]',
+      'button[aria-label*="Reject" i]', 'button[aria-label*="Decline" i]',
+      'button[title*="Decline" i]', 'button[title*="Reject" i]',
     ]);
   },
 
   endCall() {
-    const btn = findButtonInFrames('end call', 'hang up');
+    const btn = findButtonInFrames('end call', 'hang up', 'end', 'encerrar', 'finalizar', 'auflegen', 'raccrocher');
     if (btn) { btn.click(); return true; }
     return clickButton([
-      '[data-id*="end-call"]', '[data-id*="EndCall"]', '[data-id*="endcall"]',
-      'button[aria-label*="End call"]', 'button[aria-label*="Hang up"]',
-      '.oc-end-call-button', 'button[title*="End call"]', 'button[title*="End Call"]',
+      '[data-id*="end-call" i]', '[data-id*="EndCall" i]', '[data-id*="endcall" i]',
+      'button[aria-label*="End call" i]', 'button[aria-label*="Hang up" i]',
+      'button[aria-label*="End" i]',
+      '.oc-end-call-button', 'button[title*="End call" i]', 'button[title*="End Call" i]',
     ]);
   },
 

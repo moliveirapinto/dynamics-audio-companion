@@ -25,6 +25,11 @@
       </div>
       <div id="device-info" class="info-text">Not connected</div>
       <div id="bt-hint" class="info-text hint">Bluetooth headsets connect automatically via native host.</div>
+      <div id="connecting-status" class="connecting-status hidden">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div id="connecting-step" class="connecting-step">Starting connection...</div>
+        <div id="connecting-tip" class="connecting-tip hidden"></div>
+      </div>
       <button id="btn-connect" class="btn btn-primary">Connect Headset</button>
       <button id="btn-disconnect" class="btn btn-danger hidden">Disconnect</button>
     </section>

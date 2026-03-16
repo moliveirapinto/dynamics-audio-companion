@@ -18,9 +18,61 @@ const callState     = document.getElementById('call-state');
 const muteState     = document.getElementById('mute-state');
 const btnTest       = document.getElementById('btn-test');
 
-const btHint        = document.getElementById('bt-hint');
+const btHint          = document.getElementById('bt-hint');
+const connectingStatus = document.getElementById('connecting-status');
+const connectingStep   = document.getElementById('connecting-step');
+const connectingTip    = document.getElementById('connecting-tip');
+const progressFill     = document.getElementById('progress-fill');
 
 let isConnecting = false; // Track connecting state so updateUI doesn't reset it
+let connectStartTime = 0;
+let connectStepInterval = null;
+
+// ── Connection progress phases ──
+const CONNECT_PHASES = [
+  { at: 0,  pct: 10,  text: 'Starting native host...' },
+  { at: 2,  pct: 25,  text: 'Searching for headset...' },
+  { at: 5,  pct: 45,  text: 'Waiting for Bluetooth pairing...',
+    tip: '💡 Make sure your headset is powered on and in range.' },
+  { at: 8,  pct: 60,  text: 'Still connecting — hang tight...',
+    tip: '💡 Some headsets take up to 15 seconds on first connection.' },
+  { at: 12, pct: 80,  text: 'Almost there...',
+    tip: '💡 If it doesn\'t connect, try turning the headset off and on.' },
+];
+
+function startConnectProgress() {
+  connectStartTime = Date.now();
+  connectingStatus.classList.remove('hidden');
+  connectingTip.classList.add('hidden');
+  progressFill.style.width = '5%';
+  connectingStep.textContent = 'Starting connection...';
+
+  connectStepInterval = setInterval(() => {
+    const elapsed = (Date.now() - connectStartTime) / 1000;
+    // Find the latest applicable phase
+    let phase = CONNECT_PHASES[0];
+    for (const p of CONNECT_PHASES) {
+      if (elapsed >= p.at) phase = p;
+    }
+    progressFill.style.width = phase.pct + '%';
+    const secs = Math.floor(elapsed);
+    connectingStep.textContent = `${phase.text} (${secs}s)`;
+    if (phase.tip) {
+      connectingTip.textContent = phase.tip;
+      connectingTip.classList.remove('hidden');
+    }
+  }, 500);
+}
+
+function stopConnectProgress() {
+  if (connectStepInterval) {
+    clearInterval(connectStepInterval);
+    connectStepInterval = null;
+  }
+  connectingStatus.classList.add('hidden');
+  connectingTip.classList.add('hidden');
+  progressFill.style.width = '0%';
+}
 
 // ── Connect button handler ──
 
@@ -32,6 +84,7 @@ btnConnect.addEventListener('click', async () => {
     btnConnect.disabled = true;
     deviceDot.className = 'dot connecting';
     deviceInfo.textContent = 'Connecting to headset...';
+    startConnectProgress();
     btHint.classList.add('hidden');
 
     // Trigger native host connection for Bluetooth
@@ -54,6 +107,7 @@ btnConnect.addEventListener('click', async () => {
       if (attempts >= 30) {
         clearInterval(pollInterval);
         isConnecting = false;
+        stopConnectProgress();
         refreshStatus(); // Final refresh to show real state
       }
     }, 500);
@@ -61,6 +115,7 @@ btnConnect.addEventListener('click', async () => {
   } catch (err) {
     console.error('Connect error:', err);
     isConnecting = false;
+    stopConnectProgress();
     deviceInfo.textContent = `Error: ${err.message}`;
     btnConnect.textContent = 'Connect Headset';
     btnConnect.disabled = false;
@@ -88,6 +143,7 @@ function updateUI(status) {
   if (status.device) {
     // Connected! Clear connecting state
     isConnecting = false;
+    stopConnectProgress();
     deviceDot.className = 'dot connected';
     deviceLabel.textContent = 'Headset';
     const mode = status.connectionMode === 'media-session' ? ' [BT Media]' :
