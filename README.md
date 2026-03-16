@@ -107,12 +107,12 @@ D365 Contact Center does **not natively support** headset call control. This ext
 ### Option A: Download a Release (recommended for most users)
 
 1. Go to the [**Releases** page](https://github.com/moliveirapinto/dynamics-audio-companion/releases)
-2. Download the latest `.zip` file
+2. Download the latest **DynamicsAudioCompanion-v*.zip** file (NOT "Source code")
 3. Extract it to a permanent folder (e.g. `C:\DynamicsAudioCompanion`)
-4. Right-click `install.ps1` → **Run with PowerShell**
+4. Double-click **`install.bat`**
 5. Follow the on-screen instructions
 
-> **No Node.js required.** The release package includes a pre-compiled native host.
+> **No Node.js required.** The release package includes everything needed.
 
 ### Option B: Install from Source (developers)
 

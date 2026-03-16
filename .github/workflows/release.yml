@@ -66,6 +66,11 @@ jobs:
           $name = "DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}"
           Compress-Archive -Path release-stage\* -DestinationPath "$name.zip"
 
+      - name: Create node_modules zip (for source installs)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path native-host\node_modules\* -DestinationPath node_modules.zip
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -73,11 +78,12 @@ jobs:
           body: |
             ## Installation
 
-            1. Download **DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}.zip** below
+            1. Download **DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}.zip** below (NOT "Source code")
             2. Extract the zip to a permanent folder (e.g. `C:\DynamicsAudioCompanion`)
-            3. Run `install.ps1` (right-click → Run with PowerShell)
+            3. Double-click **`install.bat`**
             4. Follow the on-screen instructions
 
-            No Node.js required.
+            No Node.js required - everything is included.
           files: |
             DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}.zip
+            node_modules.zip

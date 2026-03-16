@@ -40,19 +40,33 @@ if (-not (Test-Path $nodePath)) {
 
 # Install node_modules if missing (needed for node-global-key-listener)
 if ((Test-Path $hostScript) -and -not (Test-Path (Join-Path $nhDir 'node_modules'))) {
+    # Try npm first (developer machine)
     $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
     if ($npmCmd) {
-        Write-Host "  Installing dependencies..." -ForegroundColor Yellow
+        Write-Host "  Installing dependencies via npm..." -ForegroundColor Yellow
         Push-Location $nhDir
         npm install --production 2>$null | Out-Null
         Pop-Location
     } else {
-        Write-Host "  WARNING: node_modules folder is missing and npm is not available." -ForegroundColor Red
-        Write-Host "  Bluetooth headset support (native host) may not work." -ForegroundColor Yellow
-        Write-Host "  Download a pre-built release from:" -ForegroundColor White
-        Write-Host "    https://github.com/moliveirapinto/dynamics-audio-companion/releases" -ForegroundColor Cyan
-        Write-Host ""
-        Read-Host "  Press Enter to continue anyway (or Ctrl+C to abort)"
+        # Download pre-built node_modules from latest GitHub release
+        Write-Host "  Downloading dependencies from GitHub..." -ForegroundColor Yellow
+        $nmZipUrl = "https://github.com/moliveirapinto/dynamics-audio-companion/releases/latest/download/node_modules.zip"
+        $nmZipPath = Join-Path $nhDir "node_modules.zip"
+        try {
+            Invoke-WebRequest -Uri $nmZipUrl -OutFile $nmZipPath -UseBasicParsing
+            $nmDest = Join-Path $nhDir "node_modules"
+            New-Item -ItemType Directory -Path $nmDest -Force | Out-Null
+            Expand-Archive -Path $nmZipPath -DestinationPath $nmDest -Force
+            Remove-Item $nmZipPath -Force
+            Write-Host "  Dependencies installed" -ForegroundColor Green
+        } catch {
+            Write-Host "  ERROR: Failed to download dependencies." -ForegroundColor Red
+            Write-Host "  Download the full release package instead:" -ForegroundColor Yellow
+            Write-Host "    https://github.com/moliveirapinto/dynamics-audio-companion/releases" -ForegroundColor Cyan
+            Write-Host ""
+            Read-Host "  Press Enter to exit"
+            exit 1
+        }
     }
 }
 
