@@ -16,15 +16,26 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
 
       - name: Install native-host dependencies
         run: npm install
         working-directory: native-host
 
-      - name: Compile native host exe
-        run: npx pkg host.js --target node18-win-x64 --output dynamics-audio-companion.exe
+      - name: Bundle JS with esbuild
+        run: npx esbuild host.js --bundle --platform=node --outfile=host-bundle.js
         working-directory: native-host
+
+      - name: Generate SEA blob
+        run: node --experimental-sea-config sea-config.json
+        working-directory: native-host
+
+      - name: Create standalone exe
+        shell: pwsh
+        working-directory: native-host
+        run: |
+          Copy-Item (Get-Command node).Source dynamics-audio-companion.exe
+          npx postject dynamics-audio-companion.exe NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --overwrite
 
       - name: Read version from manifest
         id: version

@@ -29,10 +29,11 @@ const { GlobalKeyboardListener } = require('node-global-key-listener');
 const path = require('path');
 
 // ── Resolve WinKeyServer.exe path ──
-// When compiled with pkg, process.execPath points to the .exe.
+// When compiled as a standalone exe (SEA), process.execPath points to the .exe.
 // WinKeyServer.exe ships alongside it. At dev time, let the library resolve it.
-const isPkg = typeof process.pkg !== 'undefined';
-const keyListenerConfig = isPkg
+let isStandalone = false;
+try { isStandalone = require('node:sea').isSea(); } catch (_) { /* dev mode */ }
+const keyListenerConfig = isStandalone
   ? { windows: { serverPath: path.join(path.dirname(process.execPath), 'WinKeyServer.exe') } }
   : {};
 

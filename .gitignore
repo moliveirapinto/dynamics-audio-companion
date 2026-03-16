@@ -1,5 +1,9 @@
 node_modules/
 *.exe
+*.crx
+*.pem
 *.log
+*.blob
+host-bundle.js
 .env
 dist/

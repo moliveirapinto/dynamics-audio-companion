@@ -10,7 +10,7 @@ Write-Host '  Dynamics Audio Companion - Build Package v' -NoNewline -Foreground
 Write-Host $version -ForegroundColor Cyan
 Write-Host ''
 
-# ── Step 1: Compile native host to standalone .exe ──
+# ── Step 1: Compile native host to standalone .exe (Node.js SEA) ──
 Write-Host '  [1/4] Compiling native host to standalone .exe ...' -ForegroundColor Yellow
 $nhDir = Join-Path $root 'native-host'
 
@@ -22,16 +22,46 @@ if (-not (Test-Path (Join-Path $nhDir 'node_modules'))) {
     Pop-Location
 }
 
-# Compile with pkg (run outside try/catch because pkg writes to stderr)
+# Step 1a: Bundle JS into a single file
 Push-Location $nhDir
+Write-Host '    Bundling with esbuild...' -ForegroundColor Gray
+npx esbuild host.js --bundle --platform=node --outfile=host-bundle.js 2>$null
+if (-not (Test-Path (Join-Path $nhDir 'host-bundle.js'))) {
+    Write-Host '    ERROR: esbuild bundling failed' -ForegroundColor Red
+    Pop-Location
+    exit 1
+}
+
+# Step 1b: Generate SEA blob
+Write-Host '    Generating SEA blob...' -ForegroundColor Gray
+node --experimental-sea-config sea-config.json 2>$null
+if (-not (Test-Path (Join-Path $nhDir 'sea-prep.blob'))) {
+    Write-Host '    ERROR: SEA blob generation failed' -ForegroundColor Red
+    Pop-Location
+    exit 1
+}
+
+# Step 1c: Copy node.exe and inject the blob
+Write-Host '    Creating standalone exe...' -ForegroundColor Gray
+$exePath = Join-Path $nhDir 'dynamics-audio-companion.exe'
+if (Test-Path $exePath) { Remove-Item $exePath -Force }
+Copy-Item (Get-Command node).Source $exePath
+
+# Remove the signature so postject can modify the exe
 $ErrorActionPreference = 'SilentlyContinue'
-npx pkg host.js --target node18-win-x64 --output dynamics-audio-companion.exe 2>$null
+& signtool remove /s $exePath 2>$null
 $ErrorActionPreference = 'Stop'
+
+npx postject $exePath NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --overwrite 2>$null
+
+# Clean up intermediate files
+Remove-Item (Join-Path $nhDir 'host-bundle.js') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $nhDir 'sea-prep.blob') -Force -ErrorAction SilentlyContinue
+
 Pop-Location
 
-$exePath = Join-Path $nhDir 'dynamics-audio-companion.exe'
 if (-not (Test-Path $exePath)) {
-    Write-Host '    ERROR: pkg compilation failed' -ForegroundColor Red
+    Write-Host '    ERROR: SEA compilation failed' -ForegroundColor Red
     exit 1
 }
 $exeKB = [math]::Round((Get-Item $exePath).Length / 1MB, 1)

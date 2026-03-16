@@ -1,5 +1,5 @@
-# ============================================================
-#  Dynamics Audio Companion — One-Click Installer
+﻿# ============================================================
+#  Dynamics Audio Companion - One-Click Installer
 #  Supports: Bose, Jabra, Poly, Plantronics, AirPods, and other headsets
 #  NO external dependencies required (no Node.js, no npm).
 # ============================================================
@@ -9,7 +9,7 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host ""
 Write-Host "  ================================================================" -ForegroundColor Cyan
-Write-Host "   Dynamics Audio Companion — Installer" -ForegroundColor Cyan
+Write-Host "   Dynamics Audio Companion - Installer" -ForegroundColor Cyan
 Write-Host "  ================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -69,17 +69,16 @@ Write-Host "  [3/4] Registering native messaging host..." -ForegroundColor Yello
 $manifestPath = Join-Path $nhDir "com.bose.d365.headset.json"
 $exePathEscaped = $exePath.Replace('\', '\\')
 
-@"
-{
+$jsonContent = '{
   "name": "com.bose.d365.headset",
   "description": "Dynamics Audio Companion",
-  "path": "$exePathEscaped",
+  "path": "' + $exePathEscaped + '",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://$extId/"
+    "chrome-extension://' + $extId + '/"
   ]
-}
-"@ | Set-Content $manifestPath -Encoding UTF8
+}'
+$jsonContent | Set-Content $manifestPath -Encoding UTF8
 
 # Register in browser registries
 $regPath = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.bose.d365.headset"
