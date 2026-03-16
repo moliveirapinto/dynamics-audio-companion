@@ -104,7 +104,7 @@ D365 Contact Center does **not natively support** headset call control. This ext
 
 ## Installation
 
-### Option A: Download a Release (recommended for most users)
+### Option A: Download a Release (recommended)
 
 1. Go to the [**Releases** page](https://github.com/moliveirapinto/dynamics-audio-companion/releases)
 2. Download the latest **DynamicsAudioCompanion-v*.zip** file (NOT "Source code")
@@ -114,44 +114,63 @@ D365 Contact Center does **not natively support** headset call control. This ext
 
 > **No Node.js required.** The release package includes everything needed.
 
-### Option B: Install from Source (developers)
+### Option B: Install from Source
 
-#### Step 1: Load the Extension
+1. Download or clone the repository
+2. Double-click **`install.bat`**
+3. The installer will automatically download any missing components (`node.exe` and dependencies) from trusted sources
+4. Follow the on-screen instructions
 
-1. Open **Edge** or **Chrome**
-2. Navigate to `edge://extensions/` (or `chrome://extensions/`)
-3. Enable **Developer mode** (toggle in top-right)
-4. Click **"Load unpacked"**
-5. Select the repository folder
-6. The extension icon appears in the toolbar
-7. **Copy the extension ID** shown under the extension name (you'll need it for Step 2)
+### What the installer does
 
-### Step 2: Install the Native Messaging Host (required for Bluetooth headsets)
+The installer (`install.bat`) handles everything automatically:
 
-1. Open a **Command Prompt** (or Terminal)
-2. Navigate to the `native-host` folder:
-   ```
-   cd "C:\Users\maoliveira\OneDrive - Microsoft\Desktop\HEADPHONE\native-host"
-   ```
-3. Run the installer:
-   ```
-   install.bat YOUR_EXTENSION_ID
-   ```
-   Or just run `install.bat` and it will prompt you for the ID.
-4. Go back to the extensions page and click **Reload** on the extension
+1. **Downloads `node.exe`** (if missing) — the official Node.js binary, digitally signed by the OpenJS Foundation. This is NOT installed system-wide; it lives only inside the extension folder
+2. **Downloads dependencies** (if missing) — the `node_modules` folder is fetched from the latest GitHub release
+3. **Prompts you to load the extension** in Edge/Chrome via Developer mode and asks for the Extension ID
+4. **Registers the native messaging host** in the Windows registry (current user only, HKCU)
 
-### Step 3: Connect Your Headset
+### Sharing with coworkers
 
-**Bluetooth (Bose 700 HP, etc.):**
-1. Pair your Bose headset via Windows Bluetooth Settings
-2. Click the extension icon → the popup should show "Native Host: Connected"
-3. Open D365 Contact Center — the extension auto-detects it
+After one person installs, they can copy the entire folder to a coworker. The coworker just needs to:
 
-**USB (with Bose USB Link dongle):**
-1. Plug in your Bose USB headset or USB Link dongle
+1. Copy the folder to their machine
+2. Double-click **`install.bat`**
+3. Load the extension and paste their own Extension ID
+
+Since `node.exe` and all dependencies are already in the folder, no downloads are needed — it runs instantly.
+
+> **Why does each person need to run `install.bat`?** Each browser assigns a unique Extension ID when loading an unpacked extension. The installer registers that ID so the browser allows the native host to communicate with the extension.
+
+### How it works: USB vs Bluetooth
+
+This extension supports headsets through two modes:
+
+**USB mode (WebHID)** — works out of the box, no native host needed:
+- The browser talks directly to USB headsets via the WebHID API
+- Click "Connect Headset" in the popup and select your device
+- Supports: Bose USB Link, Jabra (USB/dongle), Poly (USB/BT700), Yealink (USB/dongle)
+
+**Bluetooth mode (Native Host)** — requires the native messaging host:
+- Bluetooth headsets send button presses as media keys (Play/Pause, Volume, etc.)
+- The native host (`node.exe` running `host.js`) captures these global media key events
+- It maps them to D365 call actions (accept, reject, mute, hold, end) and sends them to the extension
+- Supports: Bose 700 HP, AirPods, Jabra (BT), Poly (BT), any Bluetooth headset with media controls
+
+> **The native host is completely local.** It does not make network requests, does not collect data, and only communicates with the browser extension via a local stdio pipe. The `node.exe` included is the official, unmodified Node.js binary signed by the OpenJS Foundation — antivirus will not flag it.
+
+### Connect Your Headset
+
+**USB headsets:**
+1. Plug in your headset or USB dongle
 2. Click the extension icon → click **"Connect Headset"**
-3. Select your Bose device from the WebHID picker
+3. Select your device from the WebHID picker
 4. Open D365 Contact Center
+
+**Bluetooth headsets:**
+1. Pair your headset via Windows Bluetooth Settings
+2. Click the extension icon — it should show "Native Host: Connected"
+3. Open D365 Contact Center — the extension auto-detects it
 
 ## Testing & Diagnostics
 
@@ -210,13 +229,15 @@ HEADPHONE/
 
 | Issue | Solution |
 |-------|----------|
-| "No Bose device found" (USB) | Ensure headset is connected via USB or Bose USB Link dongle. Close other apps (Teams, Zoom) that may claim the device. |
-| Native Host not connected (BT) | Run `install.bat` with correct extension ID. Reload extension. Check Node.js is installed (`node --version`). |
+| "No Bose device found" (USB) | Ensure headset is connected via USB or USB dongle. Close other apps (Teams, Zoom) that may claim the device. |
+| Native Host not connected (BT) | Run `install.bat` with correct extension ID. Reload extension. |
+| Installer fails to download `node.exe` | Check your internet connection. If blocked by corporate firewall, download the release package from the [Releases page](https://github.com/moliveirapinto/dynamics-audio-companion/releases) which includes everything pre-packaged. |
 | WebHID picker is empty | The headset may be claimed by another app, or connected via Bluetooth only (use Native Host mode instead). |
 | Media keys don't trigger D365 | Ensure D365 tab is open with a ringing/active call. Media keys only intercept during calls. |
 | Buttons detected but D365 doesn't respond | Verify D365 tab is open. Check content script injection in DevTools console. |
-| LEDs don't update | Some Bose models have limited LED support. Check the diagnostics LED test. |
+| LEDs don't update | Some models have limited LED support. Check the diagnostics LED test. |
 | Extension doesn't load | Verify manifest.json is valid. Check for errors in `edge://extensions/`. |
+| Antivirus flags a file | The `node.exe` is the official Node.js binary (digitally signed). `WinKeyServer.exe` may need an AV exclusion — add the native-host folder to your antivirus allowlist. |
 
 ## D365 Omnichannel Compatibility
 
