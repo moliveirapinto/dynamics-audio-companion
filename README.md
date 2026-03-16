@@ -104,13 +104,25 @@ D365 Contact Center does **not natively support** headset call control. This ext
 
 ## Installation
 
-### Step 1: Load the Extension
+### Option A: Download a Release (recommended for most users)
+
+1. Go to the [**Releases** page](https://github.com/moliveirapinto/dynamics-audio-companion/releases)
+2. Download the latest `.zip` file
+3. Extract it to a permanent folder (e.g. `C:\DynamicsAudioCompanion`)
+4. Right-click `install.ps1` → **Run with PowerShell**
+5. Follow the on-screen instructions
+
+> **No Node.js required.** The release package includes a pre-compiled native host.
+
+### Option B: Install from Source (developers)
+
+#### Step 1: Load the Extension
 
 1. Open **Edge** or **Chrome**
 2. Navigate to `edge://extensions/` (or `chrome://extensions/`)
 3. Enable **Developer mode** (toggle in top-right)
 4. Click **"Load unpacked"**
-5. Select the `HEADPHONE` folder
+5. Select the repository folder
 6. The extension icon appears in the toolbar
 7. **Copy the extension ID** shown under the extension name (you'll need it for Step 2)
 

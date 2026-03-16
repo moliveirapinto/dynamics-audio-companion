@@ -1,0 +1,79 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install native-host dependencies
+        run: npm install
+        working-directory: native-host
+
+      - name: Compile native host exe
+        run: npx pkg host.js --target node18-win-x64 --output dynamics-audio-companion.exe
+        working-directory: native-host
+
+      - name: Read version from manifest
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content manifest.json | ConvertFrom-Json).version
+          echo "VERSION=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          $out = "release-stage"
+          New-Item $out -ItemType Directory -Force | Out-Null
+
+          # Extension files
+          Copy-Item manifest.json, README.md, install.ps1 $out
+          Copy-Item src $out\src -Recurse
+          Copy-Item icons $out\icons -Recurse
+          Copy-Item scripts $out\scripts -Recurse
+
+          # Native host (compiled exe only, no source)
+          $nh = "$out\native-host"
+          New-Item $nh -ItemType Directory -Force | Out-Null
+          Copy-Item native-host\dynamics-audio-companion.exe $nh
+          Copy-Item native-host\install.bat $nh
+          Copy-Item native-host\native-manifest.json $nh
+
+          # WinKeyServer.exe
+          $wks = Get-ChildItem native-host\node_modules -Recurse -Filter WinKeyServer.exe | Select-Object -First 1
+          if ($wks) { Copy-Item $wks.FullName $nh }
+
+      - name: Create zip
+        shell: pwsh
+        run: |
+          $name = "DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}"
+          Compress-Archive -Path release-stage\* -DestinationPath "$name.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Dynamics Audio Companion v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Installation
+
+            1. Download **DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}.zip** below
+            2. Extract the zip to a permanent folder (e.g. `C:\DynamicsAudioCompanion`)
+            3. Run `install.ps1` (right-click → Run with PowerShell)
+            4. Follow the on-screen instructions
+
+            No Node.js required.
+          files: |
+            DynamicsAudioCompanion-v${{ steps.version.outputs.VERSION }}.zip
