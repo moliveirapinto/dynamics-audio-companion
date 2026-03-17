@@ -2,6 +2,31 @@
 
 A browser extension (Chrome/Edge) that connects **Bluetooth headsets** (Bose, Jabra, Poly, Yealink, AirPods, etc.) to **Dynamics 365 Contact Center**, enabling agents to accept, reject, hold, mute, and end calls using physical headset buttons.
 
+## Table of Contents
+
+- [Why This Exists](#why-this-exists)
+- [Supported Hardware](#supported-hardware)
+- [Button Mapping](#button-mapping)
+  - [USB Mode (WebHID)](#usb-mode-webhid)
+  - [Bluetooth Mode (Native Host)](#bluetooth-mode-native-host)
+- [Architecture](#architecture)
+- [Installation](#installation)
+  - [Option A: Download a Release (recommended)](#option-a-download-a-release-recommended)
+  - [Option B: Install from Source](#option-b-install-from-source)
+  - [What the installer does](#what-the-installer-does)
+  - [Sharing with coworkers](#sharing-with-coworkers)
+  - [About the Setup .exe file](#about-the-setup-exe-file)
+  - [Antivirus / Windows SmartScreen warnings](#antivirus--windows-smartscreen-warnings)
+  - [How it works: USB vs Bluetooth](#how-it-works-usb-vs-bluetooth)
+  - [Connect Your Headset](#connect-your-headset)
+- [Testing & Diagnostics](#testing--diagnostics)
+- [File Structure](#file-structure)
+- [Browser Support](#browser-support)
+- [Troubleshooting](#troubleshooting)
+- [D365 Omnichannel Compatibility](#d365-omnichannel-compatibility)
+- [Security](#security)
+- [License](#license)
+
 ## Why This Exists
 
 D365 Contact Center does **not natively support** headset call control. This extension bridges the gap using two approaches:
