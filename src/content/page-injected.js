@@ -263,12 +263,11 @@ const ACTIONS = {
   },
 
   endCall() {
-    const btn = findButtonInFrames('end call', 'hang up', 'end', 'encerrar', 'finalizar', 'auflegen', 'raccrocher');
+    const btn = findButtonInFrames('end call', 'hang up', 'encerrar', 'finalizar', 'auflegen', 'raccrocher', 'terminer', 'chiudi');
     if (btn) { btn.click(); return true; }
     return clickButton([
       '[data-id*="end-call" i]', '[data-id*="EndCall" i]', '[data-id*="endcall" i]',
       'button[aria-label*="End call" i]', 'button[aria-label*="Hang up" i]',
-      'button[aria-label*="End" i]',
       '.oc-end-call-button', 'button[title*="End call" i]', 'button[title*="End Call" i]',
     ]);
   },
