@@ -395,6 +395,13 @@ window.addEventListener('message', (event) => {
       console.log(`[PageScript] Action ${action}: ${result ? 'success' : 'no button found'}`);
     }
   }
+
+  // Sync call state so we can register Media Session handlers in THIS tab.
+  // D365's ACS call audio plays here, so Chrome's SMTC is tied to this tab.
+  // By registering handlers here, we intercept media keys before Spotify.
+  if (type === 'BOSE_D365_CALL_STATE') {
+    updateInTabMediaSession(payload?.callState, payload?.muted);
+  }
 });
 
 // ── CIF initialization with retry ──
@@ -417,5 +424,103 @@ function tryCifInit() {
 }
 
 tryCifInit();
+
+// ══════════════════════════════════════════════════════════════
+// IN-TAB MEDIA SESSION — Captures media keys via SMTC
+// ══════════════════════════════════════════════════════════════
+// Chrome links SMTC (System Media Transport Controls) to whichever tab
+// has active audio. During a D365 call, ACS WebRTC audio plays in THIS
+// tab, so THIS tab owns SMTC. By registering Media Session handlers
+// here, we intercept media keys that would otherwise go to Spotify.
+
+let inTabCallState = 'idle';
+let inTabMuted = false;
+let inTabActive = false;
+
+function updateInTabMediaSession(callState, muted) {
+  inTabCallState = callState || 'idle';
+  inTabMuted = muted || false;
+
+  const shouldCapture = inTabCallState !== 'idle';
+
+  if (shouldCapture && !inTabActive) {
+    inTabActive = true;
+    registerInTabHandlers();
+    console.log('[PageScript] Media Session handlers registered (call active)');
+  } else if (!shouldCapture && inTabActive) {
+    inTabActive = false;
+    unregisterInTabHandlers();
+    console.log('[PageScript] Media Session handlers removed (call ended)');
+  }
+}
+
+function registerInTabHandlers() {
+  if (!navigator.mediaSession) return;
+
+  navigator.mediaSession.playbackState = 'playing';
+
+  // Play/Pause → accept (ringing) or mute (active)
+  navigator.mediaSession.setActionHandler('play', () => {
+    console.log('[PageScript] SMTC: play');
+    handleInTabMediaKey('play');
+  });
+  navigator.mediaSession.setActionHandler('pause', () => {
+    console.log('[PageScript] SMTC: pause');
+    handleInTabMediaKey('pause');
+  });
+
+  // Stop → reject/end
+  navigator.mediaSession.setActionHandler('stop', () => {
+    console.log('[PageScript] SMTC: stop');
+    if (inTabCallState === 'ringing') {
+      sendToContentScript('MEDIA_KEY_ACTION', { action: 'rejectCall' });
+    } else if (inTabCallState === 'active' || inTabCallState === 'hold') {
+      sendToContentScript('MEDIA_KEY_ACTION', { action: 'endCall' });
+    }
+  });
+
+  try {
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      console.log('[PageScript] SMTC: nexttrack');
+      if (inTabCallState === 'ringing') {
+        sendToContentScript('MEDIA_KEY_ACTION', { action: 'acceptCall' });
+      } else if (inTabCallState === 'active' || inTabCallState === 'hold') {
+        sendToContentScript('MEDIA_KEY_ACTION', { action: 'endCall' });
+      }
+    });
+  } catch (_) {}
+
+  try {
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      console.log('[PageScript] SMTC: previoustrack');
+      if (inTabCallState === 'active') {
+        sendToContentScript('MEDIA_KEY_ACTION', { action: 'holdCall' });
+      } else if (inTabCallState === 'hold') {
+        sendToContentScript('MEDIA_KEY_ACTION', { action: 'resumeCall' });
+      }
+    });
+  } catch (_) {}
+}
+
+function handleInTabMediaKey(action) {
+  if (inTabCallState === 'ringing') {
+    sendToContentScript('MEDIA_KEY_ACTION', { action: 'acceptCall' });
+  } else if (inTabCallState === 'active' || inTabCallState === 'hold') {
+    inTabMuted = !inTabMuted;
+    sendToContentScript('MEDIA_KEY_ACTION', { action: 'toggleMute' });
+  }
+  // Re-assert playing state so we keep SMTC priority
+  if (navigator.mediaSession) {
+    navigator.mediaSession.playbackState = 'playing';
+  }
+}
+
+function unregisterInTabHandlers() {
+  if (!navigator.mediaSession) return;
+  const actions = ['play', 'pause', 'stop', 'nexttrack', 'previoustrack'];
+  for (const a of actions) {
+    try { navigator.mediaSession.setActionHandler(a, null); } catch (_) {}
+  }
+}
 
 console.log('[PageScript] Dynamics Audio Companion page bridge loaded');
