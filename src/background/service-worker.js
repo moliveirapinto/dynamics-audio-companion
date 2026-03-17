@@ -575,12 +575,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'ACTION_RESULT':
         log(`Action ${payload.action}: ${payload.success ? 'OK' : 'FAILED'} — ${payload.message || ''}`);
         break;
-
-      // Media key from in-tab Media Session (D365 tab intercepting SMTC)
-      case MSG.MEDIA_KEY_ACTION:
-        log(`In-tab media key: ${payload.action} (callState: ${state.callState})`);
-        handleMediaKeyAction(payload.action);
-        break;
     }
   }
 

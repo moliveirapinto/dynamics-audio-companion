@@ -271,14 +271,6 @@ function checkAndNotify() {
       type: MSG.CALL_STATE_CHANGED,
       payload: { state: newState, detectedBy: 'dom', detail: detectionLog },
     });
-    // Also forward to page-injected script so it can register Media Session
-    // handlers in this tab (needed to intercept SMTC media keys from Spotify)
-    window.postMessage({
-      bridge: BRIDGE_PREFIX,
-      direction: 'content-to-page',
-      type: 'BOSE_D365_CALL_STATE',
-      payload: { callState: newState, muted: lastDetectedMute },
-    }, '*');
   }
 
   if (newMute !== lastDetectedMute) {
@@ -288,13 +280,6 @@ function checkAndNotify() {
       type: MSG.MUTE_STATE_CHANGED,
       payload: { muted: newMute, detectedBy: 'dom' },
     });
-    // Sync mute state to page script's media session
-    window.postMessage({
-      bridge: BRIDGE_PREFIX,
-      direction: 'content-to-page',
-      type: 'BOSE_D365_CALL_STATE',
-      payload: { callState: lastDetectedState, muted: newMute },
-    }, '*');
   }
 }
 
