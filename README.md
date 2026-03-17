@@ -2,6 +2,8 @@
 
 A browser extension (Chrome/Edge) that connects **Bluetooth headsets** (Bose, Jabra, Poly, Yealink, AirPods, etc.) to **Dynamics 365 Contact Center**, enabling agents to accept, reject, hold, mute, and end calls using physical headset buttons.
 
+![Dynamics Audio Companion](img/screeshot.png)
+
 ## Table of Contents
 
 - [Why This Exists](#why-this-exists)
