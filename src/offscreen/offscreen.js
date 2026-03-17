@@ -360,6 +360,7 @@ navigator.hid.addEventListener('disconnect', (event) => {
 let mediaCapturing = false;
 let mediaCallState = 'idle';
 let mediaMuted = false;
+let mediaKeepAliveInterval = null;
 
 /**
  * Generate a tiny silent WAV file (1 second, 8kHz, mono, 8-bit).
@@ -444,6 +445,13 @@ function startMediaCapture(callState, muted) {
   audio.play().then(() => {
     console.log('[Offscreen] Media capture started — media keys now routed here');
     setupMediaSessionHandlers();
+    // Start periodic keepalive — Chrome can silently pause our audio at any time,
+    // which lets Spotify reclaim media key focus. This re-plays every 2 seconds
+    // so we maintain priority throughout the entire call.
+    clearInterval(mediaKeepAliveInterval);
+    mediaKeepAliveInterval = setInterval(() => {
+      keepAlive();
+    }, 2000);
   }).catch(err => {
     console.warn('[Offscreen] Silent audio play failed:', err.message);
     mediaCapturing = false;
@@ -456,6 +464,10 @@ function startMediaCapture(callState, muted) {
 function stopMediaCapture() {
   if (!mediaCapturing) return;
   mediaCapturing = false;
+
+  // Stop periodic keepalive
+  clearInterval(mediaKeepAliveInterval);
+  mediaKeepAliveInterval = null;
 
   const audio = document.getElementById('silent-audio');
   audio.pause();
