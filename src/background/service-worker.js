@@ -36,6 +36,8 @@ const state = {
   lastDeviceError: null, // error message from last connection attempt
   connectingInProgress: false,  // true while waiting for native host READY
   connectStartedAt: 0,          // timestamp when connection attempt started
+  nativeHostFatal: false,       // true if host reported an unrecoverable FATAL
+  nativeHostFatalCode: null,    // e.g. 'WIN_KEY_SERVER_MISSING'
 };
 
 // ── Native Messaging Host (for Bluetooth headsets) ──
@@ -45,7 +47,43 @@ let nativePort = null;
 let nativeReconnectTimer = null;
 let nativePortGeneration = 0; // Track port identity to prevent stale callbacks
 
+// Exponential reconnect backoff. The previous implementation used a fixed
+// 5s timer which, in the presence of a broken install (e.g. missing
+// WinKeyServer.exe), produced an endless reconnect loop spamming logs and
+// burning CPU. Backoff caps at 60s, and we stop entirely on FATAL.
+const RECONNECT_INITIAL_MS = 5000;
+const RECONNECT_MAX_MS = 60000;
+let reconnectBackoffMs = RECONNECT_INITIAL_MS;
+
+function scheduleReconnect(reason) {
+  clearTimeout(nativeReconnectTimer);
+  if (state.nativeHostFatal) {
+    log(`Not reconnecting — fatal error from native host (${state.nativeHostFatalCode}). ` +
+        `User must fix the install and click Connect Headset.`);
+    return;
+  }
+  const delay = reconnectBackoffMs;
+  log(`Will retry native host in ${Math.round(delay/1000)}s (${reason})`);
+  nativeReconnectTimer = setTimeout(() => {
+    log('Attempting native host reconnect...');
+    connectNativeHost();
+  }, delay);
+  // Double for next round, cap at max.
+  reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_MAX_MS);
+}
+
+function resetReconnectBackoff() {
+  reconnectBackoffMs = RECONNECT_INITIAL_MS;
+}
+
 function connectNativeHost() {
+  // Manual user-initiated connects (or popup retries) should clear any
+  // previous fatal flag so we actually try again.
+  // Auto-startup also calls this once; if the install is truly broken,
+  // we'll learn that on the first attempt and stop.
+  // (FATAL is set only when the host explicitly reports it, so clearing
+  // it here is safe for normal flows.)
+
   // If already connected and healthy, just broadcast status
   if (nativePort && state.nativeHostConnected) {
     log('connectNativeHost() — already connected');
@@ -84,10 +122,13 @@ function connectNativeHost() {
           state.connectingInProgress = false;
           state.connectionMode = state.connectionMode || 'bluetooth';
           state.lastDeviceError = null;
+          state.nativeHostFatal = false;
+          state.nativeHostFatalCode = null;
           state.device = state.device || {
             model: 'BT_HEADSET',
             productName: 'Bluetooth Headset (via Native Host)',
           };
+          resetReconnectBackoff();
           log('Native host READY v' + msg.version);
           syncNativeHostState();
           broadcastStatus();
@@ -104,6 +145,20 @@ function connectNativeHost() {
 
         case 'PONG':
           break;
+
+        case 'FATAL': {
+          // Unrecoverable install/runtime error. Disable auto-reconnect and
+          // surface a clear, actionable message in the popup. The host has
+          // already exited (or is about to) — the upcoming onDisconnect will
+          // honor the fatal flag and skip the reconnect schedule.
+          state.nativeHostFatal = true;
+          state.nativeHostFatalCode = msg.code || 'UNKNOWN';
+          const friendly = friendlyFatalMessage(msg.code, msg.message);
+          state.lastDeviceError = friendly;
+          log(`Native host FATAL [${state.nativeHostFatalCode}]: ${msg.message}`);
+          broadcastStatus();
+          break;
+        }
 
         case 'ERROR':
           log('Native host ERROR: ' + msg.message);
@@ -125,19 +180,48 @@ function connectNativeHost() {
         state.device = null;
         state.connectionMode = null;
       }
+      // If we never received a single FATAL/READY and the port died
+      // immediately, surface a generic registration hint.
+      if (!state.nativeHostFatal && !state.lastDeviceError) {
+        const errMsg = lastError?.message || '';
+        if (/specified native messaging host not found/i.test(errMsg)) {
+          state.nativeHostFatal = true;
+          state.nativeHostFatalCode = 'NOT_REGISTERED';
+          state.lastDeviceError =
+            'Native messaging host is not registered for this extension. ' +
+            'Run install.bat from the native-host folder and paste this ' +
+            "extension's ID when prompted.";
+        }
+      }
       broadcastStatus();
-
-      // Auto-reconnect after 5 seconds
-      clearTimeout(nativeReconnectTimer);
-      nativeReconnectTimer = setTimeout(() => {
-        log('Attempting native host reconnect...');
-        connectNativeHost();
-      }, 5000);
+      scheduleReconnect(lastError?.message || 'disconnected');
     });
 
   } catch (err) {
     log('FAILED to connect native host: ' + err.message);
     nativePort = null;
+    scheduleReconnect('connect threw: ' + err.message);
+  }
+}
+
+function friendlyFatalMessage(code, raw) {
+  switch (code) {
+    case 'WIN_KEY_SERVER_MISSING':
+      return 'WinKeyServer.exe is missing from the install (commonly removed ' +
+             'by antivirus). Allowlist the native-host folder in your AV and ' +
+             'reinstall.';
+    case 'NODE_MODULES_MISSING':
+      return 'Native host dependencies are missing. Re-run install.bat to ' +
+             'download them.';
+    case 'KEY_LISTENER_INIT_FAILED':
+    case 'KEY_LISTENER_SPAWN_FAILED':
+    case 'KEY_LISTENER_SERVER_ERROR':
+      return 'Native host could not start the global key listener. ' +
+             'Check antivirus exclusions for the native-host folder.';
+    case 'NOT_REGISTERED':
+      return 'Native messaging host is not registered. Run install.bat.';
+    default:
+      return raw || 'Native host failed: ' + (code || 'unknown');
   }
 }
 
@@ -404,6 +488,8 @@ function broadcastStatus() {
     lastDeviceError: state.lastDeviceError,
     connectingInProgress: state.connectingInProgress,
     connectStartedAt: state.connectStartedAt,
+    nativeHostFatal: state.nativeHostFatal,
+    nativeHostFatalCode: state.nativeHostFatalCode,
     btReady: !!state.d365TabId, // BT media session works when D365 tab exists
   };
   // Broadcast to all extension views (popup, etc.)
@@ -582,6 +668,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (source === SOURCE.POPUP) {
     switch (type) {
       case MSG.HID_REQUEST_CONNECT:
+        // User-initiated retry — clear any fatal flag so we actually try.
+        state.nativeHostFatal = false;
+        state.nativeHostFatalCode = null;
+        state.lastDeviceError = null;
+        resetReconnectBackoff();
         // Try USB (offscreen) first, then also try native host for BT
         sendToOffscreen(MSG.HID_REQUEST_CONNECT, {});
         connectNativeHost();
@@ -589,6 +680,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
 
       case MSG.NATIVE_HOST_CONNECT:
+        state.nativeHostFatal = false;
+        state.nativeHostFatalCode = null;
+        state.lastDeviceError = null;
+        resetReconnectBackoff();
         connectNativeHost();
         sendResponse({ ok: true, nativeHostConnected: state.nativeHostConnected });
         return false;
@@ -611,6 +706,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             nativeHostConnected: state.nativeHostConnected,
             connectingInProgress: state.connectingInProgress,
             connectStartedAt: state.connectStartedAt,
+            nativeHostFatal: state.nativeHostFatal,
+            nativeHostFatalCode: state.nativeHostFatalCode,
           });
         };
         findD365Tab().then(tab => {
