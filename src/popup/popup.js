@@ -27,7 +27,6 @@ const progressFill     = document.getElementById('progress-fill');
 let isConnecting = false; // Track connecting state so updateUI doesn't reset it
 let connectStartTime = 0;
 let connectStepInterval = null;
-let backgroundPollInterval = null; // Continuous slow poll for status updates
 
 // ── Connection progress phases ──
 const CONNECT_PHASES = [
@@ -104,7 +103,9 @@ btnConnect.addEventListener('click', async () => {
       type: MSG.HID_REQUEST_CONNECT,
     });
 
-    // Poll status until connected or timeout (45s)
+    // Poll status until connected or timeout (45s). This per-attempt poll
+    // drives the progress UI and is intentionally kept — it ends when the
+    // attempt resolves, so it does NOT keep the service worker alive.
     let attempts = 0;
     const pollInterval = setInterval(() => {
       attempts++;
@@ -244,15 +245,20 @@ function refreshStatus() {
   );
 }
 
-// Listen for live status broadcasts
+// Listen for live status broadcasts from the service worker. This is the
+// primary update mechanism — the SW pushes a STATUS_UPDATE on every state
+// change. We intentionally do NOT run a continuous setInterval poll: an
+// always-on poll was forcing the MV3 service worker to stay alive
+// indefinitely (and even keep restarting it after Chrome reaped it) which
+// (a) burned battery and (b) masked real SW lifecycle bugs by making the
+// SW appear permanently active. The push listener + the one-shot refresh
+// on popup open is sufficient because the popup itself only exists while
+// the user has it open.
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === MSG.STATUS_UPDATE) {
     updateUI(message.payload);
   }
 });
-
-// Continuous background poll — keeps UI in sync even without broadcasts
-backgroundPollInterval = setInterval(refreshStatus, 3000);
 
 // Initial load
 refreshStatus();
