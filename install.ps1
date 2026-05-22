@@ -12,6 +12,15 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 # the same URL no matter which surface reports the failure.
 $HelpUrlAv = 'https://github.com/moliveirapinto/dynamics-audio-companion#antivirus--windows-smartscreen-warnings'
 
+# Native messaging host names. Starting v1.14.0 the project ships under a
+# brand-neutral name. To keep v1.13.x installs working until users re-run
+# install.bat, we register BOTH names. The SW tries the new name first and
+# falls back to the legacy name only if the new one is missing. The legacy
+# registration can be dropped a couple of releases from now.
+$HostNameNew    = 'com.dynamics_audio_companion.headset'
+$HostNameLegacy = 'com.bose.d365.headset'
+$HostNames      = @($HostNameNew, $HostNameLegacy)
+
 Write-Host ""
 Write-Host "  ================================================================" -ForegroundColor Cyan
 Write-Host "   Dynamics Audio Companion - Installer" -ForegroundColor Cyan
@@ -163,12 +172,19 @@ if ($extId.Length -lt 10) {
 # -- Step 3: Register native messaging host --
 Write-Host "  [3/4] Registering native messaging host..." -ForegroundColor Yellow
 
-# Native messaging manifest points to the cmd wrapper
-$manifestPath = Join-Path $nhDir "com.bose.d365.headset.json"
+# Register BOTH the new and legacy host names so:
+#  - Fresh installs work with the new SW (which tries the new name first).
+#  - Users who have a v1.13.x extension still loaded keep working (old SW
+#    only knows the legacy name) until they update.
 $cmdPathEscaped = $runCmd.Replace('\', '\\')
+$manifestPaths  = @{}
 
-$jsonContent = '{
-  "name": "com.bose.d365.headset",
+foreach ($hostName in $HostNames) {
+    $manifestPath = Join-Path $nhDir ($hostName + '.json')
+    $manifestPaths[$hostName] = $manifestPath
+
+    $jsonContent = '{
+  "name": "' + $hostName + '",
   "description": "Dynamics Audio Companion",
   "path": "' + $cmdPathEscaped + '",
   "type": "stdio",
@@ -176,18 +192,22 @@ $jsonContent = '{
     "chrome-extension://' + $extId + '/"
   ]
 }'
-$jsonContent | Set-Content $manifestPath -Encoding UTF8
+    $jsonContent | Set-Content $manifestPath -Encoding UTF8
 
-# Register in browser registries
-$regPath = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.bose.d365.headset"
-New-Item -Path $regPath -Force | Out-Null
-Set-ItemProperty -Path $regPath -Name "(Default)" -Value $manifestPath
+    # Edge
+    $regPathEdge = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$hostName"
+    New-Item -Path $regPathEdge -Force | Out-Null
+    Set-ItemProperty -Path $regPathEdge -Name "(Default)" -Value $manifestPath
 
-$regPath2 = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.bose.d365.headset"
-New-Item -Path $regPath2 -Force | Out-Null
-Set-ItemProperty -Path $regPath2 -Name "(Default)" -Value $manifestPath
+    # Chrome
+    $regPathChrome = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
+    New-Item -Path $regPathChrome -Force | Out-Null
+    Set-ItemProperty -Path $regPathChrome -Name "(Default)" -Value $manifestPath
+}
 
-Write-Host "  Native host registered for Edge and Chrome" -ForegroundColor Green
+Write-Host "  Native host registered for Edge and Chrome under both names:" -ForegroundColor Green
+Write-Host "    - $HostNameNew   (current)" -ForegroundColor Gray
+Write-Host "    - $HostNameLegacy   (legacy, kept for backward compat)" -ForegroundColor Gray
 
 # -- Step 4: Verify --
 Write-Host "  [4/4] Verifying installation..." -ForegroundColor Yellow
@@ -198,8 +218,10 @@ $checks += @{ Name = "node.exe";            OK = (Test-Path $nodePath) }
 $checks += @{ Name = "host.js";             OK = (Test-Path $hostScript) }
 $checks += @{ Name = "run-host.cmd";        OK = (Test-Path $runCmd) }
 $checks += @{ Name = "WinKeyServer.exe";    OK = (Test-Path $wksPath) -or $wksInNodeModules }
-$checks += @{ Name = "Native manifest";     OK = (Test-Path $manifestPath) }
-$checks += @{ Name = "Registry (Edge)";     OK = (Test-Path "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.bose.d365.headset") }
+$checks += @{ Name = "Native manifest (new)";    OK = (Test-Path $manifestPaths[$HostNameNew]) }
+$checks += @{ Name = "Native manifest (legacy)"; OK = (Test-Path $manifestPaths[$HostNameLegacy]) }
+$checks += @{ Name = "Registry (Edge, new)";     OK = (Test-Path "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$HostNameNew") }
+$checks += @{ Name = "Registry (Edge, legacy)";  OK = (Test-Path "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$HostNameLegacy") }
 
 Write-Host ""
 foreach ($c in $checks) {
