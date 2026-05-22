@@ -19,16 +19,53 @@ import { MSG, SOURCE, CALL_STATE } from '../shared/messages.js';
 const HELP_URL_AV =
   'https://github.com/moliveirapinto/dynamics-audio-companion#antivirus--windows-smartscreen-warnings';
 
-// ── Diagnostic log buffer (kept in memory, shown in popup) ──
-const LOG_MAX = 100;
-const logBuffer = [];
+// ── Diagnostic log buffer ──
+// Kept in-memory for the popup AND mirrored to chrome.storage.local so we
+// retain history across service-worker eviction. Without this, every time
+// the SW is suspended (Chrome aggressively reaps MV3 SWs after ~30s idle)
+// the popup would open to an empty log — useless for users reporting bugs
+// after a crash-loop.
+const LOG_MAX = 200;
+const STORAGE_LOG_KEY = 'sw_log_buffer';
+const STORAGE_FLUSH_MS = 750;
+let logBuffer = [];
+let logFlushTimer = null;
+let logRestored = false;
+
+function scheduleLogFlush() {
+  if (logFlushTimer) return;
+  logFlushTimer = setTimeout(() => {
+    logFlushTimer = null;
+    try {
+      // Best-effort write. If storage is unavailable we silently lose this
+      // batch — better than throwing in the log path.
+      chrome.storage.local.set({ [STORAGE_LOG_KEY]: logBuffer.slice(-LOG_MAX) });
+    } catch (_) { /* ignore */ }
+  }, STORAGE_FLUSH_MS);
+}
+
 function log(msg) {
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
   const entry = `[${ts}] ${msg}`;
   logBuffer.push(entry);
   if (logBuffer.length > LOG_MAX) logBuffer.shift();
   console.log('[SW]', msg);
+  scheduleLogFlush();
 }
+
+// Restore log buffer on SW activation so users opening the popup AFTER a
+// crash-loop or eviction still see what went wrong. Runs once at startup.
+(async () => {
+  try {
+    const got = await chrome.storage.local.get(STORAGE_LOG_KEY);
+    const prior = got && got[STORAGE_LOG_KEY];
+    if (Array.isArray(prior) && prior.length) {
+      logBuffer = prior.slice(-LOG_MAX);
+      logBuffer.push(`[--- service worker restarted, ${prior.length} prior entries restored ---]`);
+    }
+  } catch (_) { /* ignore */ }
+  logRestored = true;
+})();
 
 // ── Global state ──
 const state = {
@@ -47,8 +84,16 @@ const state = {
 };
 
 // ── Native Messaging Host (for Bluetooth headsets) ──
-
-const NATIVE_HOST_NAME = 'com.bose.d365.headset';
+//
+// We support TWO host names for one release cycle so we don't break users
+// still on the v1.13.x install (which registered the legacy Bose-branded
+// name). The installer registers BOTH; the SW tries the new brand-neutral
+// name first and falls back to the legacy name only if the new one isn't
+// registered. After a couple of releases the legacy name can be dropped.
+const NATIVE_HOST_NAME_NEW = 'com.dynamics_audio_companion.headset';
+const NATIVE_HOST_NAME_LEGACY = 'com.bose.d365.headset';
+const NATIVE_HOST_NAMES = [NATIVE_HOST_NAME_NEW, NATIVE_HOST_NAME_LEGACY];
+let nativeHostNameIndex = 0; // which entry of NATIVE_HOST_NAMES is currently being tried
 let nativePort = null;
 let nativeReconnectTimer = null;
 let nativePortGeneration = 0; // Track port identity to prevent stale callbacks
@@ -84,13 +129,6 @@ function resetReconnectBackoff() {
 }
 
 function connectNativeHost() {
-  // Manual user-initiated connects (or popup retries) should clear any
-  // previous fatal flag so we actually try again.
-  // Auto-startup also calls this once; if the install is truly broken,
-  // we'll learn that on the first attempt and stop.
-  // (FATAL is set only when the host explicitly reports it, so clearing
-  // it here is safe for normal flows.)
-
   // If already connected and healthy, just broadcast status
   if (nativePort && state.nativeHostConnected) {
     log('connectNativeHost() — already connected');
@@ -109,11 +147,12 @@ function connectNativeHost() {
 
   // Increment generation so any old port's callbacks become no-ops
   const gen = ++nativePortGeneration;
+  const hostName = NATIVE_HOST_NAMES[nativeHostNameIndex] || NATIVE_HOST_NAME_NEW;
 
   try {
-    nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    nativePort = chrome.runtime.connectNative(hostName);
 
-    log('connectNativeHost() → connecting (gen=' + gen + ')...');
+    log(`connectNativeHost() → connecting as "${hostName}" (gen=${gen})...`);
     state.connectingInProgress = true;
     state.connectStartedAt = Date.now();
     broadcastStatus();
@@ -136,7 +175,10 @@ function connectNativeHost() {
             productName: 'Bluetooth Headset (via Native Host)',
           };
           resetReconnectBackoff();
-          log('Native host READY v' + msg.version);
+          // Remember which name worked so future reconnects don't waste a
+          // round-trip on the wrong one. Reset to "try new first" only on
+          // explicit user action (popup Connect button).
+          log(`Native host READY v${msg.version} (as "${hostName}")`);
           syncNativeHostState();
           broadcastStatus();
           break;
@@ -180,7 +222,7 @@ function connectNativeHost() {
         // This is an old port — don't touch current state
         return;
       }
-      log('Native host DISCONNECTED: ' + (lastError?.message || 'unknown'));
+      log(`Native host DISCONNECTED (as "${hostName}"): ` + (lastError?.message || 'unknown'));
       nativePort = null;
       state.nativeHostConnected = false;
       state.connectingInProgress = false;
@@ -188,18 +230,33 @@ function connectNativeHost() {
         state.device = null;
         state.connectionMode = null;
       }
-      // If we never received a single FATAL/READY and the port died
-      // immediately, surface a generic registration hint.
-      if (!state.nativeHostFatal && !state.lastDeviceError) {
-        const errMsg = lastError?.message || '';
-        if (/specified native messaging host not found/i.test(errMsg)) {
-          state.nativeHostFatal = true;
-          state.nativeHostFatalCode = 'NOT_REGISTERED';
-          state.lastDeviceError =
-            'Native messaging host is not registered for this extension. ' +
-            'Run install.bat from the native-host folder and paste this ' +
-            "extension's ID when prompted. See " + HELP_URL_AV + " for details.";
-        }
+
+      // Try the next registered host name if the current one wasn't found.
+      // This is the legacy-fallback path: new installs register only the new
+      // name; v1.13.x installs registered only the legacy name; install.ps1
+      // from v1.14.0+ registers BOTH so either case keeps working.
+      const errMsg = lastError?.message || '';
+      const notFound = /specified native messaging host not found/i.test(errMsg);
+      if (notFound && nativeHostNameIndex < NATIVE_HOST_NAMES.length - 1) {
+        nativeHostNameIndex++;
+        const nextName = NATIVE_HOST_NAMES[nativeHostNameIndex];
+        log(`Host "${hostName}" not registered — falling back to "${nextName}"`);
+        broadcastStatus();
+        // Try the next name immediately (no backoff yet — this is the
+        // initial-discovery phase, not a real reconnect).
+        connectNativeHost();
+        return;
+      }
+
+      // If we exhausted all names without finding any registration, treat it
+      // as a fatal install error so we stop spinning.
+      if (notFound && nativeHostNameIndex >= NATIVE_HOST_NAMES.length - 1) {
+        state.nativeHostFatal = true;
+        state.nativeHostFatalCode = 'NOT_REGISTERED';
+        state.lastDeviceError =
+          'Native messaging host is not registered for this extension. ' +
+          'Run install.bat from the project root and paste this ' +
+          "extension's ID when prompted. See " + HELP_URL_AV + ' for details.';
       }
       broadcastStatus();
       scheduleReconnect(lastError?.message || 'disconnected');
@@ -683,6 +740,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         state.nativeHostFatal = false;
         state.nativeHostFatalCode = null;
         state.lastDeviceError = null;
+        nativeHostNameIndex = 0; // Restart the new→legacy fallback search.
         resetReconnectBackoff();
         // Try USB (offscreen) first, then also try native host for BT
         sendToOffscreen(MSG.HID_REQUEST_CONNECT, {});
@@ -694,6 +752,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         state.nativeHostFatal = false;
         state.nativeHostFatalCode = null;
         state.lastDeviceError = null;
+        nativeHostNameIndex = 0;
         resetReconnectBackoff();
         connectNativeHost();
         sendResponse({ ok: true, nativeHostConnected: state.nativeHostConnected });
@@ -732,7 +791,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case MSG.GET_LOGS:
-        sendResponse({ logs: logBuffer.slice() });
+        sendResponse({ logs: logBuffer.slice(), restored: logRestored });
         return false;
 
       case MSG.SCAN_DOM:
