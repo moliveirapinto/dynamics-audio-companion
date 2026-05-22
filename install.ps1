@@ -7,13 +7,18 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Single canonical link for the README's antivirus troubleshooting section.
+# Kept in sync with HELP_URL_AV in service-worker.js and host.js so users see
+# the same URL no matter which surface reports the failure.
+$HelpUrlAv = 'https://github.com/moliveirapinto/dynamics-audio-companion#antivirus--windows-smartscreen-warnings'
+
 Write-Host ""
 Write-Host "  ================================================================" -ForegroundColor Cyan
 Write-Host "   Dynamics Audio Companion - Installer" -ForegroundColor Cyan
 Write-Host "  ================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 1: Verify native host files ──
+# -- Step 1: Verify native host files --
 Write-Host "  [1/4] Checking native host files..." -ForegroundColor Yellow
 $nhDir = Join-Path $root "native-host"
 $nodePath = Join-Path $nhDir "node.exe"
@@ -100,7 +105,10 @@ if (-not $wksOnDisk -and -not $wksInNodeModules) {
     Write-Host "  (Microsoft Defender, CrowdStrike, SentinelOne, etc.) deleting" -ForegroundColor Yellow
     Write-Host "  or quarantining it during extraction." -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  How to fix:" -ForegroundColor White
+    Write-Host "  Full troubleshooting guide (recommended):" -ForegroundColor White
+    Write-Host "    $HelpUrlAv" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Quick fix:" -ForegroundColor White
     Write-Host "    1. Open your antivirus settings" -ForegroundColor Gray
     Write-Host "    2. Restore WinKeyServer.exe from quarantine if present" -ForegroundColor Gray
     Write-Host "    3. Add this folder to the antivirus exclusion list:" -ForegroundColor Gray
@@ -132,7 +140,7 @@ if (-not (Test-Path $hostScript)) {
 
 Write-Host "  Native host files verified" -ForegroundColor Green
 
-# ── Step 2: Load extension in Edge ──
+# -- Step 2: Load extension in Edge --
 Write-Host "  [2/4] Extension setup..." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  You need to load the extension in Microsoft Edge:" -ForegroundColor White
@@ -152,7 +160,7 @@ if ($extId.Length -lt 10) {
     exit 1
 }
 
-# ── Step 3: Register native messaging host ──
+# -- Step 3: Register native messaging host --
 Write-Host "  [3/4] Registering native messaging host..." -ForegroundColor Yellow
 
 # Native messaging manifest points to the cmd wrapper
@@ -181,7 +189,7 @@ Set-ItemProperty -Path $regPath2 -Name "(Default)" -Value $manifestPath
 
 Write-Host "  Native host registered for Edge and Chrome" -ForegroundColor Green
 
-# ── Step 4: Verify ──
+# -- Step 4: Verify --
 Write-Host "  [4/4] Verifying installation..." -ForegroundColor Yellow
 
 $checks = @()
@@ -220,6 +228,9 @@ if ($allOk) {
     Write-Host "  ================================================================" -ForegroundColor Red
     Write-Host "   INSTALLATION HAD ERRORS - check the items above" -ForegroundColor Red
     Write-Host "  ================================================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  If WinKeyServer.exe is missing, see:" -ForegroundColor Yellow
+    Write-Host "    $HelpUrlAv" -ForegroundColor Cyan
 }
 
 Write-Host ""
