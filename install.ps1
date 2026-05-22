@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 #  Dynamics Audio Companion - One-Click Installer
 #  Supports: Bose, Jabra, Poly, Plantronics, AirPods, and other headsets
 #  NO external dependencies required (no Node.js, no npm).
@@ -79,6 +79,43 @@ if (-not (Test-Path $wksPath)) {
     }
 }
 
+# CRITICAL: verify WinKeyServer.exe actually landed on disk. Antivirus
+# (Defender, CrowdStrike, etc.) frequently quarantines this binary the moment
+# it appears, leaving an install that *looks* fine but crash-loops at runtime.
+# Halting here is the only honest signal we can give before the user reports
+# "nothing works" with confusing logs.
+$wksOnDisk = Test-Path $wksPath
+$wksInNodeModules = $false
+if (Test-Path (Join-Path $nhDir 'node_modules')) {
+    $wksInNodeModules = $null -ne (Get-ChildItem (Join-Path $nhDir 'node_modules') -Recurse -Filter 'WinKeyServer.exe' -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+if (-not $wksOnDisk -and -not $wksInNodeModules) {
+    Write-Host ""
+    Write-Host "  ================================================================" -ForegroundColor Red
+    Write-Host "   ERROR: WinKeyServer.exe is MISSING from the install" -ForegroundColor Red
+    Write-Host "  ================================================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  This file is required to capture media keys from Bluetooth" -ForegroundColor Yellow
+    Write-Host "  headsets. The most common cause is your antivirus software" -ForegroundColor Yellow
+    Write-Host "  (Microsoft Defender, CrowdStrike, SentinelOne, etc.) deleting" -ForegroundColor Yellow
+    Write-Host "  or quarantining it during extraction." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  How to fix:" -ForegroundColor White
+    Write-Host "    1. Open your antivirus settings" -ForegroundColor Gray
+    Write-Host "    2. Restore WinKeyServer.exe from quarantine if present" -ForegroundColor Gray
+    Write-Host "    3. Add this folder to the antivirus exclusion list:" -ForegroundColor Gray
+    Write-Host "       $nhDir" -ForegroundColor Cyan
+    Write-Host "    4. Re-extract the release zip" -ForegroundColor Gray
+    Write-Host "    5. Re-run install.bat" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Windows Security path:" -ForegroundColor White
+    Write-Host "    Settings > Privacy & security > Windows Security >" -ForegroundColor Gray
+    Write-Host "    Virus & threat protection > Manage settings > Exclusions" -ForegroundColor Gray
+    Write-Host ""
+    Read-Host "  Press Enter to exit"
+    exit 1
+}
+
 # Create run-host.cmd if missing
 if (-not (Test-Path $runCmd)) {
     '@echo off' | Set-Content $runCmd
@@ -152,6 +189,7 @@ $checks += @{ Name = "Extension folder";    OK = (Test-Path "$root\manifest.json
 $checks += @{ Name = "node.exe";            OK = (Test-Path $nodePath) }
 $checks += @{ Name = "host.js";             OK = (Test-Path $hostScript) }
 $checks += @{ Name = "run-host.cmd";        OK = (Test-Path $runCmd) }
+$checks += @{ Name = "WinKeyServer.exe";    OK = (Test-Path $wksPath) -or $wksInNodeModules }
 $checks += @{ Name = "Native manifest";     OK = (Test-Path $manifestPath) }
 $checks += @{ Name = "Registry (Edge)";     OK = (Test-Path "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.bose.d365.headset") }
 
