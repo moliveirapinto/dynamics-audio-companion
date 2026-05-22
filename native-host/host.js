@@ -30,6 +30,13 @@ const fs = require('fs');
 
 const HOST_VERSION = '1.13.0';
 
+// Single canonical link for users to learn how to fix AV/SmartScreen issues.
+// Surfaced in every FATAL message we emit so the browser-side log and the
+// popup both point at the README section with the full remediation steps.
+const HELP_URL_AV =
+  'https://github.com/moliveirapinto/dynamics-audio-companion' +
+  '#antivirus--windows-smartscreen-warnings';
+
 // ── Native Messaging I/O ──
 
 function sendMessage(msg) {
@@ -97,6 +104,7 @@ function emitFatalAndExit(code, message, extra) {
       type: 'FATAL',
       code,
       message,
+      helpUrl: HELP_URL_AV,
       version: HOST_VERSION,
       platform: process.platform,
       timestamp: Date.now(),
@@ -116,8 +124,8 @@ if (process.platform === 'win32') {
       'WinKeyServer.exe is missing from the install. This file is required ' +
       'to capture media keys from Bluetooth headsets. The most common cause ' +
       'is antivirus software (Defender, CrowdStrike, etc.) deleting or ' +
-      'quarantining it. Add the native-host folder to your AV allowlist and ' +
-      'reinstall.',
+      'quarantining it. See ' + HELP_URL_AV + ' for step-by-step ' +
+      'instructions to fix this.',
       { searched: wks.candidates, installDir: __dirname }
     );
     return;
@@ -137,7 +145,8 @@ try {
   emitFatalAndExit(
     'NODE_MODULES_MISSING',
     'Failed to load node-global-key-listener: ' + (err && err.message) +
-    '. The native-host install is incomplete.',
+    '. The native-host install is incomplete. See ' + HELP_URL_AV + ' for ' +
+    'reinstall instructions.',
     { installDir: __dirname }
   );
   return;
@@ -231,7 +240,9 @@ try {
 } catch (err) {
   emitFatalAndExit(
     'KEY_LISTENER_INIT_FAILED',
-    'Failed to initialize global keyboard listener: ' + (err && err.message),
+    'Failed to initialize global keyboard listener: ' + (err && err.message) +
+    '. See ' + HELP_URL_AV + ' (usually an antivirus blocking ' +
+    'WinKeyServer.exe).',
     { installDir: __dirname }
   );
   return;
@@ -245,7 +256,8 @@ try {
     srv.on('error', (err) => {
       emitFatalAndExit(
         'KEY_LISTENER_SERVER_ERROR',
-        'WinKeyServer reported an error: ' + (err && err.message),
+        'WinKeyServer reported an error: ' + (err && err.message) +
+        '. See ' + HELP_URL_AV + ' for how to allowlist it in your AV.',
         { wksPath: global.__WKS_PATH__ || null }
       );
     });
@@ -253,7 +265,8 @@ try {
       srv.proc.on('error', (err) => {
         emitFatalAndExit(
           'KEY_LISTENER_SPAWN_FAILED',
-          'WinKeyServer process failed to spawn: ' + (err && err.message),
+          'WinKeyServer process failed to spawn: ' + (err && err.message) +
+          '. See ' + HELP_URL_AV + ' for AV/SmartScreen remediation.',
           { wksPath: global.__WKS_PATH__ || null }
         );
       });
