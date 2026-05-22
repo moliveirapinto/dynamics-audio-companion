@@ -9,33 +9,26 @@
  * Supported headsets (any Bluetooth headset using AVRCP):
  * 
  * Bose 700 HP button mapping:
- *   Multi-function button → MEDIA_PLAY_PAUSE (answer/hangup)
- *   Volume Up             → VOLUME_UP
- *   Volume Down           → VOLUME_DOWN
- *   ANC button            → (handled locally on headset)
+ *   Multi-function button -> MEDIA_PLAY_PAUSE (answer/hangup)
+ *   Volume Up             -> VOLUME_UP
+ *   Volume Down           -> VOLUME_DOWN
+ *   ANC button            -> (handled locally on headset)
  * 
  * Apple AirPods / AirPods Pro button mapping:
- *   Stem press (single)   → MEDIA_PLAY_PAUSE (answer/hangup)
- *   Stem press (double)   → MEDIA_NEXT (next track / hold-resume)
- *   Stem press (triple)   → MEDIA_PREV (prev track / redial)
- *   Stem press & hold     → (noise control, handled locally)
+ *   Stem press (single)   -> MEDIA_PLAY_PAUSE (answer/hangup)
+ *   Stem press (double)   -> MEDIA_NEXT (next track / hold-resume)
+ *   Stem press (triple)   -> MEDIA_PREV (prev track / redial)
+ *   Stem press & hold     -> (noise control, handled locally)
  * 
  * Chrome Native Messaging protocol:
  *   - stdin:  receives JSON messages from extension (4-byte length prefix + JSON)
  *   - stdout: sends JSON messages to extension (4-byte length prefix + JSON)
  */
 
-const { GlobalKeyboardListener } = require('node-global-key-listener');
 const path = require('path');
 const fs = require('fs');
 
-// ── Resolve WinKeyServer.exe path ──
-// Check alongside host.js first (build.ps1 copies it here).
-// If not found, let the library resolve it from node_modules (CI/source installs).
-const localServer = path.join(__dirname, 'WinKeyServer.exe');
-const keyListenerConfig = fs.existsSync(localServer)
-  ? { windows: { serverPath: localServer } }
-  : {};
+const HOST_VERSION = '1.13.0';
 
 // ── Native Messaging I/O ──
 
@@ -76,6 +69,84 @@ function readMessage() {
   });
 }
 
+// ── Resolve WinKeyServer.exe ──
+// Two known locations:
+//   1) Alongside host.js (build.ps1 copies it here as a primary location).
+//   2) node_modules/node-global-key-listener/bin/WinKeyServer.exe (library default).
+// We must verify the binary actually exists on disk BEFORE constructing the
+// listener. Otherwise the library spawns it asynchronously and the ENOENT
+// surfaces as an uncaughtException AFTER we've already sent READY, which puts
+// the service worker into a tight reconnect loop with no actionable signal.
+
+function resolveWinKeyServer() {
+  const candidates = [
+    path.join(__dirname, 'WinKeyServer.exe'),
+    path.join(__dirname, 'node_modules', 'node-global-key-listener', 'bin', 'WinKeyServer.exe'),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return { path: p, candidates };
+    } catch (_) { /* ignore */ }
+  }
+  return { path: null, candidates };
+}
+
+function emitFatalAndExit(code, message, extra) {
+  try {
+    sendMessage(Object.assign({
+      type: 'FATAL',
+      code,
+      message,
+      version: HOST_VERSION,
+      platform: process.platform,
+      timestamp: Date.now(),
+    }, extra || {}));
+  } catch (_) { /* ignore */ }
+  // Small delay so stdout flushes before exit.
+  setTimeout(() => process.exit(2), 50);
+}
+
+// Pre-flight the WinKeyServer.exe binary on Windows. On other platforms the
+// library uses different backends, but this extension is Windows-only today.
+if (process.platform === 'win32') {
+  const wks = resolveWinKeyServer();
+  if (!wks.path) {
+    emitFatalAndExit(
+      'WIN_KEY_SERVER_MISSING',
+      'WinKeyServer.exe is missing from the install. This file is required ' +
+      'to capture media keys from Bluetooth headsets. The most common cause ' +
+      'is antivirus software (Defender, CrowdStrike, etc.) deleting or ' +
+      'quarantining it. Add the native-host folder to your AV allowlist and ' +
+      'reinstall.',
+      { searched: wks.candidates, installDir: __dirname }
+    );
+    return;
+  }
+  // Pass the resolved path explicitly so the library never falls back to a
+  // missing default location.
+  global.__WKS_PATH__ = wks.path;
+}
+
+// ── Lazy-require the library AFTER pre-flight so any constructor-time errors
+// can be reported cleanly via sendMessage rather than dying silently. ──
+
+let GlobalKeyboardListener;
+try {
+  ({ GlobalKeyboardListener } = require('node-global-key-listener'));
+} catch (err) {
+  emitFatalAndExit(
+    'NODE_MODULES_MISSING',
+    'Failed to load node-global-key-listener: ' + (err && err.message) +
+    '. The native-host install is incomplete.',
+    { installDir: __dirname }
+  );
+  return;
+}
+
+const keyListenerConfig = global.__WKS_PATH__
+  ? { windows: { serverPath: global.__WKS_PATH__ } }
+  : {};
+
 // ── State ──
 
 let callState = 'idle'; // idle, ringing, active, hold
@@ -101,10 +172,10 @@ const MEDIA_KEY_MAP = {
   'VOLUME MUTE':       'mute',
   'VOLUME_MUTE':       'mute',
   'MUTE':              'mute',
-  'MEDIA NEXT':        'flash',     // Bose: N/A | AirPods: double-press → hold/resume
+  'MEDIA NEXT':        'flash',     // Bose: N/A | AirPods: double-press -> hold/resume
   'MEDIA_NEXT':        'flash',
   'MEDIA NEXT TRACK':  'flash',
-  'MEDIA PREV':        'redial',    // Bose: N/A | AirPods: triple-press → redial
+  'MEDIA PREV':        'redial',    // Bose: N/A | AirPods: triple-press -> redial
   'MEDIA_PREV':        'redial',
   'MEDIA PREV TRACK':  'redial',
 };
@@ -154,7 +225,41 @@ function dispatchHookAction(clickCount) {
   }
 }
 
-const keyboard = new GlobalKeyboardListener(keyListenerConfig);
+let keyboard;
+try {
+  keyboard = new GlobalKeyboardListener(keyListenerConfig);
+} catch (err) {
+  emitFatalAndExit(
+    'KEY_LISTENER_INIT_FAILED',
+    'Failed to initialize global keyboard listener: ' + (err && err.message),
+    { installDir: __dirname }
+  );
+  return;
+}
+
+// Surface async spawn / pipe errors from the underlying WinKeyServer process
+// instead of letting them bubble up to uncaughtException.
+try {
+  const srv = keyboard && keyboard.server;
+  if (srv && typeof srv.on === 'function') {
+    srv.on('error', (err) => {
+      emitFatalAndExit(
+        'KEY_LISTENER_SERVER_ERROR',
+        'WinKeyServer reported an error: ' + (err && err.message),
+        { wksPath: global.__WKS_PATH__ || null }
+      );
+    });
+    if (srv.proc && typeof srv.proc.on === 'function') {
+      srv.proc.on('error', (err) => {
+        emitFatalAndExit(
+          'KEY_LISTENER_SPAWN_FAILED',
+          'WinKeyServer process failed to spawn: ' + (err && err.message),
+          { wksPath: global.__WKS_PATH__ || null }
+        );
+      });
+    }
+  }
+} catch (_) { /* ignore — best-effort hook */ }
 
 keyboard.addListener((event, down) => {
   if (!listening) return;
@@ -315,11 +420,14 @@ async function messageLoop() {
 
 // ── Init ──
 
-// Send ready message
+// READY is sent ONLY after the keyboard listener is fully wired up. If the
+// listener init failed above, we've already exited via emitFatalAndExit and
+// will never reach this line.
 sendMessage({
   type: 'READY',
-  version: '1.12.9',
+  version: HOST_VERSION,
   platform: process.platform,
+  wksPath: global.__WKS_PATH__ || null,
   timestamp: Date.now(),
 });
 
@@ -333,8 +441,16 @@ messageLoop().catch((err) => {
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
 process.on('uncaughtException', (err) => {
+  // If WinKeyServer crashed after startup, surface a structured FATAL so the
+  // service worker stops reconnecting instead of looping forever.
+  const msg = (err && err.message) || String(err);
+  const isWksMissing = /WinKeyServer\.exe.*ENOENT/i.test(msg) || /ENOENT.*WinKeyServer/i.test(msg);
+  if (isWksMissing) {
+    emitFatalAndExit('WIN_KEY_SERVER_MISSING', msg, { wksPath: global.__WKS_PATH__ || null });
+    return;
+  }
   try {
-    sendMessage({ type: 'ERROR', message: `Uncaught: ${err.message}` });
+    sendMessage({ type: 'ERROR', message: `Uncaught: ${msg}` });
   } catch (_) { /* ignore */ }
   process.exit(1);
 });
