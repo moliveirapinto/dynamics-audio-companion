@@ -509,3 +509,259 @@ function broadcastStatus() {
     type: MSG.STATUS_UPDATE,
     payload: status,
   }).catch(() => {}); // Ignore if no listeners
+}
+
+/**
+ * Update headset LEDs based on current call state.
+ */
+function syncHeadsetLeds() {
+  const ledState = {
+    offHook: state.callState === CALL_STATE.ACTIVE || state.callState === CALL_STATE.HOLD,
+    ring:    state.callState === CALL_STATE.RINGING,
+    mute:    state.muted,
+    hold:    state.callState === CALL_STATE.HOLD,
+  };
+  sendToOffscreen(MSG.SET_HEADSET_LED, ledState);
+}
+
+// ── Message routing ──
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const { source, type, payload } = message;
+
+  // ── From offscreen (HID events) ──
+  if (source === SOURCE.OFFSCREEN) {
+    switch (type) {
+      case MSG.OFFSCREEN_READY:
+        state.offscreenReady = true;
+        log('Offscreen ready');
+        break;
+
+      case MSG.HID_DEVICE_CONNECTED:
+        state.device = payload;
+        state.connectionMode = 'usb';
+        state.lastDeviceError = null;
+        log(`USB headset connected: ${payload.model} (${payload.productName})`);
+        broadcastStatus();
+        syncHeadsetLeds();
+        break;
+
+      case MSG.HID_DEVICE_DISCONNECTED:
+        // If native host (BT) is connected or connecting, ignore USB HID disconnect
+        if ((state.nativeHostConnected || state.connectingInProgress) &&
+            state.connectionMode !== 'usb') {
+          log('Ignoring USB HID disconnect — BT native host active/connecting');
+          break;
+        }
+        if (state.connectionMode === 'usb') {
+          state.device = null;
+          state.connectionMode = null;
+        }
+        // Only set error if we don't have an active connection via another mode
+        if (!state.device && !state.nativeHostConnected && !state.connectingInProgress) {
+          state.lastDeviceError = payload?.message || null;
+        }
+        log('HID disconnected: ' + (payload?.reason || '') + ' ' + (payload?.message || ''));
+        broadcastStatus();
+        break;
+
+      case MSG.HID_HOOK_SWITCH:
+        if (payload.momentary) {
+          // Momentary hook (Poly/Jabra): decide action based on call state
+          if (state.callState === CALL_STATE.RINGING) {
+            sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'acceptCall' });
+          } else if (state.callState === CALL_STATE.ACTIVE || state.callState === CALL_STATE.HOLD) {
+            sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'endCall' });
+          }
+        } else {
+          // Stateful hook (Bose): off-hook=accept, on-hook=end
+          if (payload.value) {
+            if (state.callState === CALL_STATE.RINGING || state.callState === CALL_STATE.IDLE) {
+              sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'acceptCall' });
+            }
+          } else {
+            if (state.callState === CALL_STATE.ACTIVE || state.callState === CALL_STATE.HOLD) {
+              sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'endCall' });
+            } else if (state.callState === CALL_STATE.RINGING) {
+              sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'rejectCall' });
+            }
+          }
+        }
+        break;
+
+      case MSG.HID_PHONE_MUTE:
+        if (payload.momentary) {
+          // Momentary mute (Poly/Jabra): toggle
+          state.muted = !state.muted;
+        } else {
+          // Stateful mute (Bose): set directly
+          state.muted = payload.value;
+        }
+        sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'toggleMute', payload: { muted: state.muted } });
+        syncHeadsetLeds();
+        broadcastStatus();
+        break;
+
+      case MSG.HID_FLASH:
+        // Flash = hold/resume toggle
+        if (state.callState === CALL_STATE.ACTIVE) {
+          sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'holdCall' });
+        } else if (state.callState === CALL_STATE.HOLD) {
+          sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'resumeCall' });
+        }
+        break;
+
+      case MSG.HID_DROP:
+        sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'endCall' });
+        break;
+
+      case MSG.HID_REDIAL:
+        sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'redial' });
+        break;
+
+      case MSG.HID_VOLUME_UP:
+        sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'volumeUp' });
+        break;
+
+      case MSG.HID_VOLUME_DOWN:
+        sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'volumeDown' });
+        break;
+
+      // ── Media Session (Bluetooth headset media keys) ──
+      case MSG.MEDIA_KEY_ACTION:
+        log(`Media key action: ${payload.action} (callState: ${state.callState})`);
+        handleMediaKeyAction(payload.action);
+        break;
+    }
+  }
+
+  // ── From content script (D365 state changes) ──
+  if (source === SOURCE.CONTENT_SCRIPT) {
+    switch (type) {
+      case MSG.CALL_STATE_CHANGED:
+        state.callState = payload.state;
+        state.d365TabId = sender.tab?.id ?? state.d365TabId;
+        log(`Call state changed: ${state.callState}`);
+        syncHeadsetLeds();
+        syncNativeHostState();
+        syncMediaCapture();
+        broadcastStatus();
+        break;
+
+      case MSG.MUTE_STATE_CHANGED:
+        state.muted = payload.muted;
+        syncHeadsetLeds();
+        syncNativeHostState();
+        syncMediaCapture();
+        broadcastStatus();
+        break;
+
+      case 'DOM_SCAN_RESULT':
+        log('DOM SCAN from ' + (payload.url || 'unknown'));
+        log('  iframes: ' + payload.iframeCount + ', CIF: ' + payload.cifAvailable);
+        if (payload.buttons?.length) {
+          payload.buttons.forEach((b, i) => {
+            const parts = [b.text, b.label, b.title, b.dataId].filter(Boolean);
+            log(`  btn[${i}]: <${b.tagName}> ${parts.join(' | ')} ${b.visible ? '' : '(hidden)'}`);
+          });
+        } else {
+          log('  No buttons found on page');
+        }
+        break;
+
+      case 'ACTION_RESULT':
+        log(`Action ${payload.action}: ${payload.success ? 'OK' : 'FAILED'} — ${payload.message || ''}`);
+        break;
+    }
+  }
+
+  // ── From popup ──
+  if (source === SOURCE.POPUP) {
+    switch (type) {
+      case MSG.HID_REQUEST_CONNECT:
+        // User-initiated retry — clear any fatal flag so we actually try.
+        state.nativeHostFatal = false;
+        state.nativeHostFatalCode = null;
+        state.lastDeviceError = null;
+        resetReconnectBackoff();
+        // Try USB (offscreen) first, then also try native host for BT
+        sendToOffscreen(MSG.HID_REQUEST_CONNECT, {});
+        connectNativeHost();
+        sendResponse({ ok: true });
+        return false;
+
+      case MSG.NATIVE_HOST_CONNECT:
+        state.nativeHostFatal = false;
+        state.nativeHostFatalCode = null;
+        state.lastDeviceError = null;
+        resetReconnectBackoff();
+        connectNativeHost();
+        sendResponse({ ok: true, nativeHostConnected: state.nativeHostConnected });
+        return false;
+
+      case MSG.HID_REQUEST_DISCONNECT:
+        sendToOffscreen(MSG.HID_REQUEST_DISCONNECT, {});
+        sendResponse({ ok: true });
+        return false;
+
+      case MSG.GET_STATUS: {
+        // Actively scan for D365 tabs instead of relying on cached id
+        const respond = () => {
+          sendResponse({
+            device: state.device,
+            callState: state.callState,
+            muted: state.muted,
+            d365Connected: !!state.d365TabId,
+            connectionMode: state.connectionMode,
+            lastDeviceError: state.lastDeviceError,
+            nativeHostConnected: state.nativeHostConnected,
+            connectingInProgress: state.connectingInProgress,
+            connectStartedAt: state.connectStartedAt,
+            nativeHostFatal: state.nativeHostFatal,
+            nativeHostFatalCode: state.nativeHostFatalCode,
+          });
+        };
+        findD365Tab().then(tab => {
+          state.d365TabId = tab ? tab.id : null;
+          respond();
+        }).catch(() => {
+          // If tab query fails, use cached value
+          respond();
+        });
+        return true; // async sendResponse
+      }
+
+      case MSG.GET_LOGS:
+        sendResponse({ logs: logBuffer.slice() });
+        return false;
+
+      case MSG.SCAN_DOM:
+        // Ask content script in D365 tab to scan the DOM
+        log('Triggering DOM scan...');
+        sendToD365(MSG.PAGE_BRIDGE_ACTION, { action: 'scanDOM' });
+        sendResponse({ ok: true });
+        return false;
+    }
+  }
+});
+
+// ── Tab management ──
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === state.d365TabId) {
+    state.d365TabId = null;
+    state.callState = CALL_STATE.IDLE;
+    state.muted = false;
+    syncHeadsetLeds();
+    syncMediaCapture();
+    broadcastStatus();
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tab.url && /\.dynamics\.com/.test(tab.url)) {
+    state.d365TabId = tabId;
+  }
+});
+
+log('Service worker loaded');
